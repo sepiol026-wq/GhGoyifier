@@ -1,0 +1,45 @@
+# CopyLeft 2026 github.com/sepiol026-wq | telegram:@samsepi0l_ovf. Licensed under AGPLv3.
+name: checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Install dependencies
+        run: |
+          uv venv .venv --python python
+          uv pip install --python .venv/bin/python -r requirements.txt
+      - name: Compile Python modules
+        run: .venv/bin/python -m compileall -q GhGoyifier
+      - name: Run Ruff
+        run: uvx ruff check GhGoyifier
+      - name: Check dependency consistency
+        run: uv pip check --python .venv/bin/python
+      - name: Validate configuration and event registry
+        run: |
+          PYTHONPATH=. .venv/bin/python - <<'PY'
+          import GhGoyifier.events as events
+          from GhGoyifier.config import parse_config
+          assert len(events.event_handlers) == 19
+          parse_config("example.toml")
+          print("configuration and event registry are valid")
+          PY
+      - name: Check installer syntax
+        run: bash -n install.sh
+      - name: Check whitespace
+        run: git diff --check
