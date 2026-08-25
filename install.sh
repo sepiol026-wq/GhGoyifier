@@ -28,7 +28,22 @@ if [ -d "$INSTALL_DIR/.git" ]; then
   else
     fail "Installation directory is not writable and sudo is unavailable: $INSTALL_DIR"
   fi
-  git -C "$INSTALL_DIR" fetch origin "$BRANCH"
+  if ! git -C "$INSTALL_DIR" fetch origin "$BRANCH"; then
+    say "Existing Git checkout is not writable; rebuilding it while preserving local data"
+    recovery_dir="${INSTALL_DIR}.recovery.$$"
+    previous_dir="${INSTALL_DIR}.previous.$$"
+    rm -rf "$recovery_dir"
+    git clone --branch "$BRANCH" --depth 1 "$REPO_URL" "$recovery_dir"
+    for preserved in config.toml production-database.sqlite3 ghgoyifier.log .venv; do
+      if [ -e "$INSTALL_DIR/$preserved" ] || [ -L "$INSTALL_DIR/$preserved" ]; then
+        rm -rf "$recovery_dir/$preserved"
+        mv "$INSTALL_DIR/$preserved" "$recovery_dir/$preserved"
+      fi
+    done
+    mv "$INSTALL_DIR" "$previous_dir"
+    mv "$recovery_dir" "$INSTALL_DIR"
+    rm -rf "$previous_dir"
+  fi
   git -C "$INSTALL_DIR" checkout "$BRANCH"
   git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH"
 else
