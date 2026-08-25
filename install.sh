@@ -81,9 +81,23 @@ fi
 say "Installed aliases: ghgoyifi, ghgoyifier, GhGoyifier"
 say "Run: $BIN_DIR/ghgoyifi gateway start"
 case ":${PATH}:" in *":$BIN_DIR:"*) ;; *)
-  if [ "${SHELL##*/}" = "fish" ]; then
-    printf '\nAdd to PATH: fish_add_path "%s"\n' "$BIN_DIR"
-  else
-    printf '\nAdd to PATH: export PATH="%s:$PATH"\n' "$BIN_DIR"
+  shell_name=${SHELL##*/}
+  if [ "$shell_name" = "fish" ]; then
+    fish -c 'fish_add_path -U -- $argv[1]' fish "$BIN_DIR" 2>/dev/null || true
+    fish_config=${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish
+    mkdir -p "$(dirname "$fish_config")"
+    fish_line="fish_add_path -m \"$BIN_DIR\""
+    grep -Fqx "$fish_line" "$fish_config" 2>/dev/null || printf '%s\n' "$fish_line" >> "$fish_config"
+    printf '\nPATH updated for fish: %s\n' "$BIN_DIR"
+  elif [ "$shell_name" = "zsh" ]; then
+    shell_config=${ZDOTDIR:-$HOME}/.zshrc
+    path_line="export PATH=\"$BIN_DIR:\$PATH\""
+    grep -Fqx "$path_line" "$shell_config" 2>/dev/null || printf '%s\n' "$path_line" >> "$shell_config"
+    printf '\nPATH updated for zsh: %s\n' "$BIN_DIR"
+  elif [ "$shell_name" = "bash" ]; then
+    shell_config=${BASH_ENV:-$HOME/.bashrc}
+    path_line="export PATH=\"$BIN_DIR:\$PATH\""
+    grep -Fqx "$path_line" "$shell_config" 2>/dev/null || printf '%s\n' "$path_line" >> "$shell_config"
+    printf '\nPATH updated for bash: %s\n' "$BIN_DIR"
   fi
   ;; esac
