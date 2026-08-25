@@ -235,22 +235,12 @@ def configure(path: str) -> int:
     console.print("\n[bold]2/4 · Bot behavior[/bold]")
     number("settings", "owner_id", "Owner Telegram user ID", 0)
     current_buttons = str(data["settings"].get("buttons", "inline"))
-    button_value = default_input("Button type (inline/in-msg)", current_buttons)
-    while button_value not in {"inline", "in-msg"}:
-        console.print("[yellow]Please select inline or in-msg.[/yellow]")
-        button_value = default_input("Button type (inline/in-msg)", current_buttons)
-    data["settings"]["buttons"] = button_value
+    data["settings"]["buttons"] = current_buttons if current_buttons in {"inline", "in-msg"} else "inline"
     console.print("\n[bold]3/4 · GitHub notifications[/bold]")
     number("notifications", "poll_interval", "Polling interval in seconds", 30)
-    boolean("notifications", "none_auth_perm", "Allow anonymous access to public repositories?", False)
+    data["notifications"]["none_auth_perm"] = bool(data["notifications"].get("none_auth_perm", False))
     console.print("\n[bold]4/4 · Optional GitHub App[/bold]")
-    app_enabled = Confirm.ask("Configure a GitHub App now?", default=bool(data["github_app"].get("app_id")))
-    if app_enabled:
-        number("github_app", "app_id", "GitHub App ID", 0)
-        text("github_app", "slug", "GitHub App slug", False)
-        text("github_app", "private_key_path", "GitHub App private key path", False)
-        text("github_app", "webhook_secret", "GitHub App webhook secret", True)
-    else:
+    if not data["github_app"].get("app_id"):
         data["github_app"] = {"app_id": 0, "slug": "", "private_key_path": "", "webhook_secret": ""}
     try:
         Config.model_validate(data)
