@@ -376,35 +376,43 @@ async def _poll_commits(session: aiohttp.ClientSession, bot: GoyBot, integration
             continue
         by_repo[(item.repository_name, token or "")].append(item)
     for (repo, token), items in by_repo.items():
-        key = f"commits:{repo}:{hash(token)}"
-        status, _, commits = await _get(session, f"/repos/{repo}/commits?per_page=20", token or None, key)
-        if status != 200 or not isinstance(commits, list) or not commits:
-            _log.info("commits fetch repo=%s status=%s items=%s", repo, status, len(commits) if isinstance(commits, list) else 0)
+        branch_status, _, branches = await _get(session, f"/repos/{repo}/branches?per_page=100", token or None, f"branches:{repo}:{hash(token)}")
+        if branch_status != 200 or not isinstance(branches, list):
+            _log.info("branches fetch repo=%s status=%s items=%s", repo, branch_status, len(branches) if isinstance(branches, list) else 0)
             continue
-        latest = str(commits[0].get("sha") or "")
-        previous = _commit_watermarks.get(key)
-        if previous is None:
+        for branch_data in branches:
+            branch = str(branch_data.get("name") or "")
+            if not branch:
+                continue
+            key = f"commits:{repo}:{hash(token)}:{branch}"
+            status, _, commits = await _get(session, f"/repos/{repo}/commits?sha={branch}&per_page=20", token or None, key)
+            if status != 200 or not isinstance(commits, list) or not commits:
+                _log.info("commits fetch repo=%s branch=%s status=%s items=%s", repo, branch, status, len(commits) if isinstance(commits, list) else 0)
+                continue
+            latest = str(commits[0].get("sha") or "")
+            previous = _commit_watermarks.get(key)
+            if previous is None:
+                _commit_watermarks[key] = latest
+                _log.info("commits baseline repo=%s branch=%s sha=%s", repo, branch, latest[:7])
+                continue
+            if latest == previous:
+                continue
+            if latest in _delivered_commit_heads:
+                _commit_watermarks[key] = latest
+                continue
+            status, _, compared = await _get(session, f"/repos/{repo}/compare/{previous}...{latest}", token or None, f"commit-range:{repo}:{branch}:{previous}:{latest}")
+            new_commits = compared.get("commits") if status == 200 and isinstance(compared, dict) else None
+            if not new_commits:
+                new_commits = [item for item in commits if str(item.get("sha") or "") != previous]
+            if new_commits:
+                event = {"type": "PushEvent", "repo": {"name": repo}, "payload": {"ref": f"refs/heads/{branch}", "before": previous, "head": latest, "size": len(new_commits), "commits": new_commits}}
+                for integration in items:
+                    if await EventSetting.is_enabled(integration.chat.chat_id, "push"):
+                        rendered = await _event_text(session, repo, event, token or None, await Chat.get_language(integration.chat.chat_id))
+                        await _send(bot, integration, rendered)
+                _delivered_commit_heads.add(latest)
+                _log.info("commits processed repo=%s branch=%s new=%s", repo, branch, len(new_commits))
             _commit_watermarks[key] = latest
-            _log.info("commits baseline repo=%s sha=%s", repo, latest[:7])
-            continue
-        if latest == previous:
-            continue
-        if latest in _delivered_commit_heads:
-            _commit_watermarks[key] = latest
-            continue
-        status, _, compared = await _get(session, f"/repos/{repo}/compare/{previous}...{latest}", token or None, f"commit-range:{repo}:{previous}:{latest}")
-        new_commits = compared.get("commits") if status == 200 and isinstance(compared, dict) else None
-        if not new_commits:
-            new_commits = [item for item in commits if str(item.get("sha") or "") != previous]
-        if new_commits:
-            event = {"type": "PushEvent", "repo": {"name": repo}, "payload": {"ref": "refs/heads/main", "before": previous, "head": latest, "size": len(new_commits), "commits": new_commits}}
-            for integration in items:
-                if await EventSetting.is_enabled(integration.chat.chat_id, "push"):
-                    rendered = await _event_text(session, repo, event, token or None, await Chat.get_language(integration.chat.chat_id))
-                    await _send(bot, integration, rendered)
-            _delivered_commit_heads.add(latest)
-            _log.info("commits processed repo=%s new=%s", repo, len(new_commits))
-        _commit_watermarks[key] = latest
 
 
 async def poll_once(bot: GoyBot, config: Config) -> None:
