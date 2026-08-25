@@ -158,6 +158,10 @@ class ProxyManager:
         self.current = profile
 
     async def _apply_environment(self, values: dict[str, str]) -> None:
+        system_url = values.get("ALL_PROXY") or values.get("all_proxy")
+        if system_url and urlsplit(system_url).scheme.lower().startswith("socks"):
+            await self._apply_url(system_url)
+            return
         for name in _proxy_names:
             if values.get(name):
                 os.environ[name] = values[name]

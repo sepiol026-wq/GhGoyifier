@@ -38,6 +38,29 @@ else
 fi
 
 cd "$INSTALL_DIR"
+country=""
+if command -v curl >/dev/null; then
+  country=$(curl -fsS --max-time 5 https://ipapi.co/country/ 2>/dev/null | tr -d '[:space:]' || true)
+fi
+if [ "$country" = "RU" ]; then
+  printf '\033[1;33mWarning:\033[0m your external IP is detected in Russia; Telegram and GitHub blocking is possible.\n'
+  printf 'Enter a proxy URL (HTTP/HTTPS/SOCKS4/SOCKS5) or press Enter to skip: '
+  IFS= read -r -s proxy_input < "$INPUT_DEVICE"
+  printf '\n'
+  if [ -n "$proxy_input" ]; then
+    case "$proxy_input" in
+      http://*|https://*|socks4://*|socks4a://*|socks5://*|socks5h://*)
+        export HTTP_PROXY="$proxy_input" HTTPS_PROXY="$proxy_input" ALL_PROXY="$proxy_input"
+        say "Proxy accepted and will be used by the gateway"
+        ;;
+      *)
+        say "Proxy skipped: URL must start with http://, https://, socks4://, socks5://, or socks5h://"
+        ;;
+    esac
+  else
+    say "Proxy setup skipped; automatic system proxy detection remains enabled"
+  fi
+fi
 if command -v uv >/dev/null; then
   printf 'uv found. Use uv to create the environment and install dependencies? [Y/n] '
   read -r use_uv < "$INPUT_DEVICE"
