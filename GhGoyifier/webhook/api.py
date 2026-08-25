@@ -156,7 +156,7 @@ async def send_message(
     text: str,
 ) -> None:
     """Send a (possibly long) Telegram-HTML message to the integration's
-    chat. Splits the text into 4096-safe chunks at safe HTML boundaries and
+    chat. Splits the text into 32768-safe chunks at safe HTML boundaries and
     sends them sequentially, so one event with many commits / a huge body
     arrives as a series of messages instead of falling on the floor."""
     chunks = split_html_message(text)

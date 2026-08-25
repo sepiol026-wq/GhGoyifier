@@ -2,7 +2,7 @@
 # Portions derived from vsecoder/github-notifi-bot; original MIT license is retained in LICENSE.
 """Split a long Telegram-HTML message into per-message-limit-friendly chunks.
 
-Telegram's hard limit for ``sendMessage.text`` is 4096 characters. The
+Telegram Rich Message payload limit is 32768 characters. The
 splitter walks a hierarchy of safe boundaries:
 
 1. **Between blockquotes** — gap between ``</blockquote>`` and ``<blockquote>``.
@@ -19,7 +19,7 @@ through the first three split levels.
 """
 import re
 
-safe_limit = 4000
+safe_limit = 32768
 
 
 def split_html_message(text: str, max_len: int = safe_limit) -> list[str]:
