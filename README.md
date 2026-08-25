@@ -76,7 +76,7 @@ These controls protect the application boundary. They are not a replacement for 
 <tr><td><img src="assets/icons/speed.svg" width="28" alt="Speed"></td><td><strong>Lightweight async runtime</strong><br>Direct GoyGram transport, bounded work, caching, and no unnecessary dialog framework.</td></tr>
 <tr><td><img src="assets/icons/security.svg" width="28" alt="Security"></td><td><strong>Defense in depth</strong><br>Encrypted secrets, opaque callback handles, admin re-checks, ownership checks, replay protection, and flood controls.</td></tr>
 <tr><td><img src="assets/icons/terminal.svg" width="28" alt="CLI"></td><td><strong>Operator-first CLI</strong><br>Rich configuration wizard, config dot-path editing, gateway lifecycle commands, diagnostics, and log inspection.</td></tr>
-<tr><td><img src="assets/icons/init.svg" width="28" alt="Init systems"></td><td><strong>Many init environments</strong><br>Automatic detection for systemd, dinit, runit, OpenRC, SysVinit, s6, Upstart, BusyBox init, finit, dumb-init, minit, tiny, and Epoch.</td></tr>
+<tr><td><img src="assets/icons/init.svg" width="28" alt="Init systems"></td><td><strong>Many init environments</strong><br>Production lifecycle support for systemd, dinit, runit, OpenRC, SysVinit, s6, and Upstart, with supervised start/stop/restart/status fallback for BusyBox init, finit, dumb-init, minit, tiny-init, Epoch, and generic environments.</td></tr>
 </table>
 
 Additional capabilities:
@@ -183,7 +183,7 @@ The Telegram interface supports English, Russian, Ukrainian, Kazakh, and German.
 
 `gateway uninstall` removes only the gateway service registration and runtime artifacts. `uninstall --yes` removes the isolated GhGoyifier installation, virtual environment, config, database, logs, and owned wrappers. It creates no backup by default; pass `--backup` explicitly when a recovery archive is wanted. The command refuses to delete a non-isolated source checkout.
 
-The gateway detects the host init environment. Native service definitions are used where that init system has a stable service interface. On init environments without a portable service contract, GhGoyifier uses a direct supervised fallback for start, stop, restart, and status; enable/disable is reported as not applicable rather than being falsely claimed as native support.
+The gateway detects the host init environment. Native service definitions and native control commands are used for systemd, dinit, runit, OpenRC, SysVinit, s6, and Upstart. Finit, BusyBox init, dumb-init, minit, tiny-init, Epoch, and unknown environments use the same private supervised fallback with the project virtualenv, PID file, durable log, stale-PID recovery, graceful stop, and forced-stop timeout. `enable` and `disable` are reported as not applicable when the detected environment has no stable native enablement API; the CLI never claims a service was enabled when it was not.
 
 ## Telegram workflow
 
@@ -204,6 +204,7 @@ GhGoyifier/
 ├── __main__.py          runtime entry point and CLI dispatch
 ├── cli.py               Rich operator CLI and configuration wizard
 ├── gateway.py           init detection and service lifecycle
+├── proxy.py             proxy profiles, SOCKS connectors, and failover
 ├── notifications.py     GitHub polling, reconciliation, and delivery
 ├── events/              event schemas, registry, and Rich formatters
 ├── handlers/            commands, callbacks, ownership, and admin checks
