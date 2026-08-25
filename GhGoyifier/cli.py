@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import sqlite3
@@ -197,16 +198,24 @@ def configure(path: str) -> int:
             data[section].setdefault(key, value)
     console.print(Panel.fit("[bold cyan]GhGoyifier setup[/bold cyan]\nOnly operator-important settings are requested. Technical defaults are configured automatically.\nPress Enter to keep a value; secrets are never displayed.", border_style="cyan"))
 
+    def operator_input(prompt: str) -> str:
+        try:
+            with open("/dev/tty") as stream:
+                print(prompt, end="", flush=True)
+                return stream.readline().rstrip("\n")
+        except OSError:
+            return console.input(prompt)
+
     def default_input(label: str, current: str) -> str:
-        value = console.input(f"{label} ({current}): ")
+        value = operator_input(f"{label} ({current}): ")
         return value.strip() or current
 
     def text(section: str, key: str, label: str, secret: bool = False, default: str = "") -> None:
         current = str(data[section].get(key, default))
         if secret:
-            value = Prompt.ask(label + " (hidden; Enter keeps current)", password=True, default="")
+            value = getpass.getpass(label + " (hidden; Enter keeps current): ")
         else:
-            value = default_input(label, current) if current else console.input(f"{label}: ")
+            value = default_input(label, current) if current else operator_input(f"{label}: ")
         if value != "":
             _set_value(data, f"{section}.{key}", _coerce(value))
 
@@ -218,7 +227,7 @@ def configure(path: str) -> int:
     def boolean(section: str, key: str, label: str, default: bool) -> None:
         current = bool(data[section].get(key, default))
         while True:
-            value = console.input(f"{label} [{'Y/n' if current else 'y/N'}]: ").strip().lower()
+            value = operator_input(f"{label} [{'Y/n' if current else 'y/N'}]: ").strip().lower()
             if not value:
                 _set_value(data, f"{section}.{key}", current)
                 return
@@ -235,13 +244,26 @@ def configure(path: str) -> int:
     console.print("\n[bold]2/4 · Bot behavior[/bold]")
     number("settings", "owner_id", "Owner Telegram user ID", 0)
     current_buttons = str(data["settings"].get("buttons", "inline"))
-    data["settings"]["buttons"] = current_buttons if current_buttons in {"inline", "in-msg"} else "inline"
+    button_value = default_input("Button type (inline/in-msg)", current_buttons)
+    while button_value not in {"inline", "in-msg"}:
+        console.print("[yellow]Please select inline or in-msg.[/yellow]")
+        button_value = default_input("Button type (inline/in-msg)", current_buttons)
+    data["settings"]["buttons"] = button_value
     console.print("\n[bold]3/4 · GitHub notifications[/bold]")
     number("notifications", "poll_interval", "Polling interval in seconds", 30)
-    data["notifications"]["none_auth_perm"] = bool(data["notifications"].get("none_auth_perm", False))
+    boolean("notifications", "none_auth_perm", "Allow anonymous access to public repositories?", False)
     console.print("\n[bold]4/4 · Optional GitHub App[/bold]")
-    if not data["github_app"].get("app_id"):
+    app_enabled = operator_input(f"Configure a GitHub App now? [{'Y/n' if data['github_app'].get('app_id') else 'y/N'}]: ").strip().lower()
+    if app_enabled in {"y", "yes"} or (not app_enabled and data["github_app"].get("app_id")):
+        number("github_app", "app_id", "GitHub App ID", 0)
+        text("github_app", "slug", "GitHub App slug", False)
+        text("github_app", "private_key_path", "GitHub App private key path", False)
+        text("github_app", "webhook_secret", "GitHub App webhook secret", True)
+    elif app_enabled in {"n", "no", ""}:
         data["github_app"] = {"app_id": 0, "slug": "", "private_key_path": "", "webhook_secret": ""}
+    else:
+        console.print("[yellow]Please enter Y or N.[/yellow]")
+        return configure(path)
     try:
         Config.model_validate(data)
     except Exception as exc:
