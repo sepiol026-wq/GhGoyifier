@@ -15,10 +15,10 @@ btn_help = "Help"
 
 def main_menu_keyboard(include_back: bool = False, lang: str = "en") -> dict:
     rows = [
-        [(tr(lang, "menu.connect"), "callback_data", "menu:connect"), (tr(lang, "menu.add"), "callback_data", "menu:add")],
-        [(tr(lang, "menu.repos"), "callback_data", "menu:repos"), (tr(lang, "menu.chats"), "callback_data", "menu:chats")],
-        [(tr(lang, "menu.help"), "callback_data", "menu:help")],
-        [(tr(lang, "menu.project"), "url", "https://github.com/sepiol026-wq/GhGoyifier")],
+        [(f"🔌 {tr(lang, 'menu.connect')}", "callback_data", "menu:connect"), (f"➕ {tr(lang, 'menu.add')}", "callback_data", "menu:add")],
+        [(f"🏢 {tr(lang, 'menu.repos')}", "callback_data", "menu:repos"), (f"💬 {tr(lang, 'menu.chats')}", "callback_data", "menu:chats")],
+        [(f"❓ {tr(lang, 'menu.help')}", "callback_data", "menu:help")],
+        [(f"📦 {tr(lang, 'menu.project')}", "url", "https://github.com/sepiol026-wq/GhGoyifier")],
     ]
     if include_back:
         rows.append([("« Back", "callback_data", "menu:home")])

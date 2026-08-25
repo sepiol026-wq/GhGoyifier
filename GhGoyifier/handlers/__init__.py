@@ -1026,10 +1026,11 @@ async def on_callback(cb: Any, app, config: Config, bot: GoyBot):
             return await cb.answer("You're no longer a chat administrator.", alert=True)
         await _loading(msg, app, "myevents")
         settings = await EventSetting.for_chat(selected_chat)
+        lang = await Chat.get_language(selected_chat)
         rows = [
             [
                 (
-                    f"{'✅' if item.enabled else '❌'} {event_labels.get(item.event_type, item.event_type)}",
+                    f"{'✅' if item.enabled else '❌'} {event_label(lang, item.event_type)}",
                     "callback_data",
                     f"myevent:{selected_chat}:{item.event_type}",
                 )
@@ -1057,10 +1058,11 @@ async def on_callback(cb: Any, app, config: Config, bot: GoyBot):
             f"{event} {'enabled' if setting and setting.enabled else 'disabled'}"
         )
         settings = await EventSetting.for_chat(selected_chat)
+        lang = await Chat.get_language(selected_chat)
         rows = [
             [
                 (
-                    f"{'✅' if item.enabled else '❌'} {event_labels.get(item.event_type, item.event_type)}",
+                    f"{'✅' if item.enabled else '❌'} {event_label(lang, item.event_type)}",
                     "callback_data",
                     f"myevent:{selected_chat}:{item.event_type}",
                 )
