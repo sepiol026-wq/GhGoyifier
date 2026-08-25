@@ -115,6 +115,13 @@ def _is_dm(msg: GoyMessage) -> bool:
     return bool(msg.from_user and msg.chat_id == msg.from_user.id)
 
 
+async def _lang(msg: GoyMessage) -> str:
+    user_id = int(getattr(msg.from_user, "id", 0) or 0)
+    if _is_dm(msg):
+        return await User.get_language(user_id)
+    return await Chat.get_language(int(msg.chat_id or 0))
+
+
 def _nav_button(msg: GoyMessage, route: str, label: str = "« Back") -> tuple[str, str, str]:
     return (label if msg.is_callback else "✕ Close", "callback_data", route if msg.is_callback else "nav:close")
 
@@ -360,7 +367,7 @@ async def on_message(msg: Any, app, config: Config, bot: GoyBot):
     if message.chat_id == message.from_user.id and text == btn_my_chats:
         return await _show_my_chats(message, app)
     if message.chat_id == message.from_user.id and text == btn_help:
-        return await message.answer(help, reply_markup=help_keyboard())
+        return await message.answer(tr(await _lang(message), "help"), reply_markup=help_keyboard(lang=await _lang(message)))
     if _command(text, "start"):
         if message.chat_id != message.from_user.id:
             return await message.answer("Please send /start in private chat.")
@@ -375,13 +382,13 @@ async def on_message(msg: Any, app, config: Config, bot: GoyBot):
             if inst:
                 return await message.answer(
                     f"✅ <b>GitHub App installed</b> for <code>{inst.account_login}</code>.",
-                    reply_markup=main_menu_keyboard(),
+                    reply_markup=main_menu_keyboard(lang=await _lang(message)),
                 )
-        return await message.answer(welcome, reply_markup=main_menu_keyboard())
+        return await message.answer(tr(await _lang(message), "welcome"), reply_markup=main_menu_keyboard(lang=await _lang(message)))
     if _command(text, "help"):
         if message.chat_id != message.from_user.id:
             return await message.answer("Please send /help in private chat.")
-        return await message.answer(help, reply_markup=help_keyboard())
+        return await message.answer(tr(await _lang(message), "help"), reply_markup=help_keyboard(lang=await _lang(message)))
     if _command(text, "setlang"):
         if _is_dm(message):
             if not await User.is_registered(message.from_user.id):
@@ -654,7 +661,7 @@ async def on_callback(cb: Any, app, config: Config, bot: GoyBot):
         return await _show_token(msg, app, config)
     if data == "menu:home":
         await cb.answer()
-        return await msg.answer(welcome, reply_markup=main_menu_keyboard())
+        return await msg.answer(tr(await _lang(msg), "welcome"), reply_markup=main_menu_keyboard(lang=await _lang(msg)))
     if data == "menu:add":
         bot_username = get_bot_username()
         if not bot_username:
@@ -675,7 +682,7 @@ async def on_callback(cb: Any, app, config: Config, bot: GoyBot):
         return
     if data == "menu:help":
         await cb.answer()
-        return await msg.answer(help, reply_markup=help_keyboard(True))
+        return await msg.answer(tr(await _lang(msg), "help"), reply_markup=help_keyboard(True, await _lang(msg)))
     if data == "nav:close":
         try:
             await msg.delete()

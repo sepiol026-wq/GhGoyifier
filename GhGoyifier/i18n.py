@@ -51,6 +51,9 @@ text = {
         "language.current": "Current language: {name}",
         "events.title": "GitHub event settings",
         "events.stale": "Some events are not subscribed on GitHub. Run /reinstall.",
+        "menu.connect": "Connect", "menu.add": "Add to chat", "menu.repos": "Repos", "menu.chats": "My chats", "menu.help": "Help", "menu.project": "GhGoyifier",
+        "welcome": "<h2><b>Hi! I'm a Goyifier bot.</b></h2><p>I deliver GitHub notifications to Telegram using efficient polling.</p><hr><p><b>First step:</b> tap <b>Connect</b> below to authorize GitHub, then add me to a group and choose a repository.</p><details><summary>How setup works</summary><p>Authorize GitHub, choose a repository, select a chat, then configure event types.</p></details>",
+        "help": "<h2><b>Goyifier help</b></h2><p>Use the buttons below for private-chat setup.</p><hr><details><summary>Private controls</summary><p><b>Connect</b> manages GitHub authorization.<br><b>Add to chat</b> invites the bot to a group.<br><b>Repos</b> browses repositories.<br><b>My chats</b> manages integrations.<br><b>Set language</b> changes this interface.</p></details><details><summary>Group commands</summary><p><code>/integrate owner/repo</code><br><code>/integrations</code><br><code>/events</code><br><code>/setlang</code><br><code>/set_topic</code><br><code>/reinstall</code><br><code>/delete owner/repo</code></p></details>",
     },
     "ru": {
         "language.title": "Выберите язык интерфейса",
@@ -64,6 +67,9 @@ text = {
         "language.current": "Текущий язык: {name}",
         "events.title": "Настройки событий GitHub",
         "events.stale": "Некоторые события не подписаны в GitHub. Выполните /reinstall.",
+        "menu.connect": "Подключить", "menu.add": "Добавить в чат", "menu.repos": "Репозитории", "menu.chats": "Мои чаты", "menu.help": "Помощь", "menu.project": "GhGoyifier",
+        "welcome": "<h2><b>Привет! Я бот Goyifier.</b></h2><p>Я доставляю уведомления GitHub в Telegram через эффективный polling.</p><hr><p><b>Первый шаг:</b> нажми <b>Подключить</b>, авторизуй GitHub, затем добавь меня в группу и выбери репозиторий.</p><details><summary>Как это работает</summary><p>Авторизуй GitHub, выбери репозиторий и чат, затем настрой типы событий.</p></details>",
+        "help": "<h2><b>Помощь Goyifier</b></h2><p>Используй кнопки ниже для настройки в личном чате.</p><hr><details><summary>Личные настройки</summary><p><b>Подключить</b> управляет авторизацией GitHub.<br><b>Добавить в чат</b> приглашает бота в группу.<br><b>Репозитории</b> показывает доступные репозитории.<br><b>Мои чаты</b> управляет интеграциями.<br><b>Язык</b> меняет язык интерфейса.</p></details><details><summary>Команды группы</summary><p><code>/integrate owner/repo</code><br><code>/integrations</code><br><code>/events</code><br><code>/setlang</code><br><code>/set_topic</code><br><code>/reinstall</code><br><code>/delete owner/repo</code></p></details>",
     },
 }
 
