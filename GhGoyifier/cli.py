@@ -220,7 +220,12 @@ def configure(path: str) -> int:
     console.print("\n[bold]2/4 · Bot behavior[/bold]")
     number("settings", "owner_id", "Owner Telegram user ID", 0)
     current_buttons = str(data["settings"].get("buttons", "inline"))
-    data["settings"]["buttons"] = Prompt.ask("Button type", choices=["inline", "in-msg"], default=current_buttons)
+    button_prompt = "Button type [inline/in-msg]"
+    button_value = Prompt.ask(button_prompt, default=current_buttons)
+    while button_value not in {"inline", "in-msg"}:
+        console.print("[yellow]Please select inline or in-msg.[/yellow]")
+        button_value = Prompt.ask(button_prompt, default=current_buttons)
+    data["settings"]["buttons"] = button_value
     console.print("\n[bold]3/4 · GitHub notifications[/bold]")
     number("notifications", "poll_interval", "Polling interval in seconds", 30)
     boolean("notifications", "none_auth_perm", "Allow anonymous access to public repositories?", False)

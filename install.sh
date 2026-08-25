@@ -6,6 +6,11 @@ REPO_URL="${GHGOYIFIER_REPO:-https://github.com/sepiol026-wq/GhGoyifier.git}"
 INSTALL_DIR="${GHGOYIFIER_DIR:-${HOME}/.local/share/GhGoyifier}"
 BIN_DIR="${GHGOYIFIER_BIN:-${HOME}/.local/bin}"
 BRANCH="${GHGOYIFIER_BRANCH:-main}"
+if [ -r /dev/tty ]; then
+  INPUT_DEVICE=/dev/tty
+else
+  INPUT_DEVICE=/dev/stdin
+fi
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -26,7 +31,7 @@ fi
 cd "$INSTALL_DIR"
 if command -v uv >/dev/null; then
   printf 'uv found. Use uv to create the environment and install dependencies? [Y/n] '
-  read -r use_uv
+  read -r use_uv < "$INPUT_DEVICE"
   case "${use_uv:-Y}" in
     [Yy]|[Yy][Ee][Ss])
       uv venv --python "$PYTHON_BIN" .venv
@@ -63,7 +68,7 @@ ln -sfn ghgoyifi "$BIN_DIR/ghgoyifier"
 ln -sfn ghgoyifi "$BIN_DIR/GhGoyifier"
 
 say "Opening Rich configuration TUI"
-"$INSTALL_DIR/.venv/bin/python" -m GhGoyifier config --file "$INSTALL_DIR/config.toml"
+"$INSTALL_DIR/.venv/bin/python" -m GhGoyifier config --file "$INSTALL_DIR/config.toml" < "$INPUT_DEVICE"
 
 if [ "$(id -u)" -eq 0 ]; then
   "$BIN_DIR/ghgoyifi" gateway install && "$BIN_DIR/ghgoyifi" gateway enable || say "Native service enablement failed; direct gateway mode remains available"
