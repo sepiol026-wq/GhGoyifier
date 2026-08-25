@@ -31,12 +31,13 @@ _event_names = {
     "DeleteEvent": "delete",
     "ForkEvent": "fork",
     "WorkflowRunEvent": "workflow_run",
+    "DiscussionEvent": "discussion",
+    "DiscussionCommentEvent": "discussion_comment",
     "DeploymentEvent": "deployment_status",
     "DeploymentStatusEvent": "deployment_status",
     "MemberEvent": "member",
     "PublicEvent": "public",
     "WatchEvent": "star",
-    "GollumEvent": "discussion",
     "PageBuildEvent": "page_build",
     "RepositoryEvent": "repository",
     "TeamEvent": "team",
@@ -118,7 +119,7 @@ def _headers_for(token: str | None, cache_key: str) -> dict[str, str]:
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "Goyifier"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    if cache_key.startswith(("events:", "commits:", "commit-range:")):
+    if cache_key.startswith(("events:", "branches:", "commits:", "commit-range:")):
         return headers
     previous = _headers.get(cache_key, {})
     if previous.get("etag"):
@@ -143,6 +144,20 @@ async def _get(session: aiohttp.ClientSession, path: str, token: str | None, cac
 
 def _repository_name(value: dict) -> str:
     return str((value.get("repo") or {}).get("name") or (value.get("repository") or {}).get("full_name") or "")
+
+
+def _event_subject(event_type: str, payload: dict) -> dict:
+    subject_order = {
+        "issue_comment": ("comment", "issue"),
+        "pull_request_review": ("review", "pull_request"),
+        "pull_request_review_comment": ("comment", "pull_request"),
+        "commit_comment": ("comment",),
+        "discussion_comment": ("comment", "discussion"),
+        "discussion": ("discussion",),
+        "fork": ("forkee",),
+        "member": ("member",),
+    }.get(event_type, ("pull_request", "issue", "release", "discussion", "comment", "review", "workflow_run", "deployment_status", "deployment"))
+    return next(((payload.get(name) or {}) for name in subject_order if payload.get(name)), {})
 
 
 async def _event_text(session: aiohttp.ClientSession, repo: str, event: dict, token: str | None, lang: str = "en") -> tuple[str, str, str]:
@@ -200,7 +215,7 @@ async def _event_text(session: aiohttp.ClientSession, repo: str, event: dict, to
     parts = [f"<b>{html.escape(label)}</b>", f"<code>{html.escape(repo)}</code>", f"{actor} {action}"]
     if title:
         parts.append(f"<i>{title}</i>")
-    subject = payload.get("pull_request") or payload.get("issue") or payload.get("release") or payload.get("discussion") or payload.get("comment") or payload.get("review") or payload.get("workflow_run") or payload.get("deployment_status") or payload.get("deployment") or {}
+    subject = _event_subject(event_type, payload)
     if not title:
         title = html.escape(str(subject.get("title") or subject.get("name") or subject.get("display_title") or ""))
         if title:
@@ -229,7 +244,11 @@ async def _event_text(session: aiohttp.ClientSession, repo: str, event: dict, to
     if event_type == "deployment_status":
         parts.append(f"Environment: <code>{html.escape(str(subject.get('environment') or 'unknown'))}</code>")
         parts.append(f"State: <code>{html.escape(str(subject.get('state') or subject.get('status') or 'unknown'))}</code>")
-    url = subject.get("html_url") or f"https://github.com/{repo}"
+    if event_type in {"create", "delete"} and payload.get("ref"):
+        ref_type = str(payload.get("ref_type") or "branch")
+        url = f"https://github.com/{repo}/{('tree' if ref_type == 'branch' else 'releases/tag' if ref_type == 'tag' else 'blob')}/{payload['ref']}"
+    else:
+        url = subject.get("html_url") or f"https://github.com/{repo}"
     label = {
         "pull_request": "Open pull request",
         "issues": "Open issue",
@@ -255,9 +274,10 @@ def _event_key(repo: str, event: dict) -> str:
             payload.get("head") or payload.get("after") or event.get("id"),
             payload.get("size"),
         ]
-    elif event_type in {"IssuesEvent", "IssueCommentEvent", "PullRequestEvent", "PullRequestReviewEvent", "PullRequestReviewCommentEvent"}:
-        subject = payload.get("issue") or payload.get("pull_request") or payload.get("comment") or payload.get("review") or {}
-        marker = [payload.get("action"), subject.get("id"), subject.get("updated_at"), subject.get("html_url")]
+    elif event_type in {"IssuesEvent", "IssueCommentEvent", "PullRequestEvent", "PullRequestReviewEvent", "PullRequestReviewCommentEvent", "CommitCommentEvent", "DiscussionEvent", "DiscussionCommentEvent", "ForkEvent", "MemberEvent"}:
+        mapped_type = _event_names.get(event_type, "github")
+        subject = _event_subject(mapped_type, payload)
+        marker = [payload.get("action"), subject.get("id"), subject.get("updated_at"), subject.get("html_url"), event.get("id")]
     else:
         marker = [payload.get("action"), payload.get("ref"), payload.get("ref_type"), payload.get("id"), event.get("created_at")]
     raw = json.dumps([repo, event_type, marker], ensure_ascii=True, sort_keys=True, default=str).encode()
@@ -269,19 +289,21 @@ def _notification_text(item: dict, repo: str, lang: str = "en") -> tuple[str, st
     kind = html.escape(event_label(lang, str(subject.get("type") or "").lower()))
     title = html.escape(str(subject.get("title") or "GitHub notification"))
     reason = html.escape(str(item.get("reason") or "subscribed"))
-    return f'<b>GitHub {kind}</b>\n<code>{html.escape(repo)}</code>\n<i>{title}</i>\nReason: {reason}', f"https://github.com/{repo}", "Open on GitHub"
+    url = subject.get("latest_comment_url") or subject.get("html_url") or f"https://github.com/{repo}"
+    return f'<b>GitHub {kind}</b>\n<code>{html.escape(repo)}</code>\n<i>{title}</i>\nReason: {reason}', str(url), "Open on GitHub"
 
 
-async def _send(bot: GoyBot, integration: Integration, rendered: tuple[str, str, str]) -> None:
+async def _send(bot: GoyBot, integration: Integration, rendered: tuple[str, str, str]) -> bool:
     chat = integration.chat
     if chat is None:
-        return
+        return False
     kwargs = {"message_thread_id": chat.topic_id} if chat.topic_id else {}
     text, url, label = rendered
     try:
         await bot.send_message(chat.chat_id, text, reply_markup=inline_keyboard([[(f"🔗 {label}", "url", url)]]), **kwargs)
     except SilentDrop:
-        return
+        return False
+    return True
 
 
 async def _poll_notifications(session: aiohttp.ClientSession, bot: GoyBot, integrations: list[Integration]) -> None:
@@ -308,12 +330,25 @@ async def _poll_notifications(session: aiohttp.ClientSession, bot: GoyBot, integ
             matches = [x for x in items if x.repository_name == repo]
             if not matches or key in _seen:
                 continue
-            _seen.add(key)
             if not _primed:
+                _seen.add(key)
                 continue
+            notification_type = str((item.get("subject") or {}).get("type") or "").lower()
+            event_type = {"issue": "issues", "pullrequest": "pull_request", "pull_request": "pull_request", "release": "release", "discussion": "discussion", "commit": "push"}.get(notification_type, "issues")
             for integration in matches:
-                if await EventSetting.is_enabled(integration.chat.chat_id, "issues"):
-                    await _send(bot, integration, _notification_text(item, repo, await Chat.get_language(integration.chat.chat_id)))
+                delivery_key = f"{key}:chat:{integration.chat.chat_id}"
+                if delivery_key in _seen or not await EventSetting.is_enabled(integration.chat.chat_id, event_type):
+                    continue
+                if await _send(bot, integration, _notification_text(item, repo, await Chat.get_language(integration.chat.chat_id))):
+                    _seen.add(delivery_key)
+            all_delivered = True
+            for integration in matches:
+                delivery_key = f"{key}:chat:{integration.chat.chat_id}"
+                enabled = await EventSetting.is_enabled(integration.chat.chat_id, event_type)
+                if enabled and delivery_key not in _seen:
+                    all_delivered = False
+            if all_delivered:
+                _seen.add(key)
 
 
 async def _poll_events(session: aiohttp.ClientSession, bot: GoyBot, integrations: list[Integration], config: Config) -> None:
@@ -345,20 +380,33 @@ async def _poll_events(session: aiohttp.ClientSession, bot: GoyBot, integrations
             event_key = _event_key(repo, event)
             if event_key in _seen:
                 continue
-            _seen.add(event_key)
-            newest_marker = max(newest_marker, marker)
             event_type = _event_names.get(str(event.get("type")))
             if not event_type:
+                newest_marker = max(newest_marker, marker)
                 continue
             event_payload = event.get("payload") or {}
             if event_type == "push" and not event_payload.get("commits") and not event_payload.get("before"):
+                newest_marker = max(newest_marker, marker)
                 continue
             event_head = str(event_payload.get("head") or "")
             if event_type == "push" and event_head and event_head in _delivered_commit_heads:
+                newest_marker = max(newest_marker, marker)
                 continue
-            for integration in items:
-                if await EventSetting.is_enabled(integration.chat.chat_id, event_type):
-                    await _send(bot, integration, await _event_text(session, repo, event, token or None, await Chat.get_language(integration.chat.chat_id)))
+            enabled = [integration for integration in items if await EventSetting.is_enabled(integration.chat.chat_id, event_type)]
+            delivery_failed = False
+            for integration in enabled:
+                delivery_key = f"{event_key}:chat:{integration.chat.chat_id}"
+                if delivery_key in _seen:
+                    continue
+                if await _send(bot, integration, await _event_text(session, repo, event, token or None, await Chat.get_language(integration.chat.chat_id))):
+                    _seen.add(delivery_key)
+                else:
+                    delivery_failed = True
+            if delivery_failed:
+                break
+            if not enabled or all(f"{event_key}:chat:{integration.chat.chat_id}" in _seen for integration in enabled):
+                _seen.add(event_key)
+            newest_marker = max(newest_marker, marker)
             if event_type == "push" and event_head:
                 _delivered_commit_heads.add(event_head)
             delivered += 1
@@ -406,10 +454,21 @@ async def _poll_commits(session: aiohttp.ClientSession, bot: GoyBot, integration
                 new_commits = [item for item in commits if str(item.get("sha") or "") != previous]
             if new_commits:
                 event = {"type": "PushEvent", "repo": {"name": repo}, "payload": {"ref": f"refs/heads/{branch}", "before": previous, "head": latest, "size": len(new_commits), "commits": new_commits}}
+                event_key = _event_key(repo, event)
+                delivery_failed = False
                 for integration in items:
                     if await EventSetting.is_enabled(integration.chat.chat_id, "push"):
+                        delivery_key = f"{event_key}:chat:{integration.chat.chat_id}"
+                        if delivery_key in _seen:
+                            continue
                         rendered = await _event_text(session, repo, event, token or None, await Chat.get_language(integration.chat.chat_id))
-                        await _send(bot, integration, rendered)
+                        if await _send(bot, integration, rendered):
+                            _seen.add(delivery_key)
+                        else:
+                            delivery_failed = True
+                if delivery_failed:
+                    continue
+                _seen.add(event_key)
                 _delivered_commit_heads.add(latest)
                 _log.info("commits processed repo=%s branch=%s new=%s", repo, branch, len(new_commits))
             _commit_watermarks[key] = latest
