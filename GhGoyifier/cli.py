@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 import shutil
 import subprocess
 import sys
@@ -274,43 +275,62 @@ def _gateway(args: argparse.Namespace) -> int:
 def _doctor(path: str = default_config, fix: bool = False) -> int:
     root = Path(__file__).resolve().parent.parent
     config_path = Path(path).expanduser()
-    rows: list[tuple[str, str, str]] = []
+    if not config_path.is_absolute():
+        config_path = root / config_path
+    rows: list[tuple[str, str, str, str]] = []
+
+    def add(check: str, target: str, status: str, detail: str) -> None:
+        rows.append((check, target, status, detail))
+
     if fix:
         config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         if config_path.exists() and not config_path.is_symlink():
             config_path.chmod(0o600)
-    rows.append(("Python", sys.executable, "ok" if sys.version_info >= (3, 10) else "fail"))
+    add("python", sys.executable, "ok" if sys.version_info >= (3, 10) else "fail", f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
     venv = root / ".venv" / "bin" / "python"
     if fix and not venv.exists():
-        if shutil.which("uv"):
-            subprocess.run(["uv", "venv", "--python", sys.executable, str(root / ".venv")], cwd=root, check=False, capture_output=True)
-        else:
-            subprocess.run([sys.executable, "-m", "venv", str(root / ".venv")], cwd=root, check=False, capture_output=True)
-    rows.append(("Virtualenv", str(venv), "ok" if venv.exists() else "fail"))
+        command = ["uv", "venv", "--python", sys.executable, str(root / ".venv")] if shutil.which("uv") else [sys.executable, "-m", "venv", str(root / ".venv")]
+        subprocess.run(command, cwd=root, check=False, capture_output=True)
+    add("venv", str(venv), "ok" if venv.is_file() and os.access(venv, os.X_OK) else "fail", "executable environment" if venv.exists() else "missing")
+    valid = False
     if config_path.is_symlink():
-        rows.append(("Config", str(config_path), "fail: symlink refused"))
-        valid = False
+        add("config.symlink", str(config_path), "fail", "symlink refused")
+    elif not config_path.exists():
+        add("config.exists", str(config_path), "fail", "file missing")
     else:
+        mode = config_path.stat().st_mode & 0o777
+        add("config.permissions", oct(mode), "ok" if mode == 0o600 else "warn", "private file" if mode == 0o600 else "expected 0o600")
         try:
             parse_config(str(config_path))
             valid = True
-            rows.append(("Config", str(config_path), "ok"))
+            add("config.parse", str(config_path), "ok", "validated by Config.model_validate")
         except Exception as exc:
-            valid = False
-            rows.append(("Config", str(config_path), f"fail: {type(exc).__name__}"))
+            add("config.parse", str(config_path), "fail", type(exc).__name__)
     db_path = root / "production-database.sqlite3"
     if valid:
         try:
             configured = toml.load(config_path).get("database", {}).get("file_name")
-            if configured:
+            if configured and configured != ":memory:":
                 db_path = Path(configured).expanduser()
                 if not db_path.is_absolute():
                     db_path = root / db_path
         except Exception:
             pass
-    if fix and db_path.exists() and not db_path.is_symlink():
-        db_path.chmod(0o600)
-    rows.append(("Database", str(db_path), "ok" if not db_path.is_symlink() else "fail: symlink refused"))
+    if db_path.is_symlink():
+        add("database.symlink", str(db_path), "fail", "symlink refused")
+    elif db_path.exists():
+        if fix:
+            db_path.chmod(0o600)
+        mode = db_path.stat().st_mode & 0o777
+        add("database.permissions", oct(mode), "ok" if mode == 0o600 else "warn", "private file" if mode == 0o600 else "expected 0o600")
+        try:
+            with sqlite3.connect(db_path) as connection:
+                integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+            add("database.integrity", str(db_path), "ok" if integrity == "ok" else "fail", str(integrity))
+        except sqlite3.Error as exc:
+            add("database.integrity", str(db_path), "fail", type(exc).__name__)
+    else:
+        add("database", str(db_path), "warn", "created on first gateway start")
     python = venv if venv.exists() else Path(sys.executable)
     if venv.exists():
         if shutil.which("uv"):
@@ -318,30 +338,35 @@ def _doctor(path: str = default_config, fix: bool = False) -> int:
         else:
             dependency = subprocess.run([str(python), "-m", "pip", "check"], cwd=root, text=True, capture_output=True)
         if fix and dependency.returncode:
-            if shutil.which("uv"):
-                dependency = subprocess.run(["uv", "pip", "install", "--python", str(python), "-r", "requirements.txt"], cwd=root, text=True, capture_output=True)
-            else:
-                dependency = subprocess.run([str(python), "-m", "pip", "install", "-r", "requirements.txt"], cwd=root, text=True, capture_output=True)
-        rows.append(("Dependencies", "requirements.txt", "ok" if dependency.returncode == 0 else "fail"))
+            command = ["uv", "pip", "install", "--python", str(python), "-r", "requirements.txt"] if shutil.which("uv") else [str(python), "-m", "pip", "install", "-r", "requirements.txt"]
+            dependency = subprocess.run(command, cwd=root, text=True, capture_output=True)
+        add("dependencies", "requirements.txt", "ok" if dependency.returncode == 0 else "fail", "compatible" if dependency.returncode == 0 else "install/check failed")
     else:
-        rows.append(("Dependencies", "requirements.txt", "fail: virtualenv missing"))
+        add("dependencies", "requirements.txt", "fail", "venv missing")
     compile_check = subprocess.run([str(python), "-m", "compileall", "-q", "GhGoyifier"], cwd=root, capture_output=True)
-    rows.append(("Python compile", "GhGoyifier", "ok" if compile_check.returncode == 0 else "fail"))
+    add("compile", "GhGoyifier", "ok" if compile_check.returncode == 0 else "fail", "bytecode compilation")
+    git_status = _git(root, "status", "--porcelain").stdout.strip()
+    add("git.tree", "tracked worktree", "ok" if not git_status else "warn", "clean" if not git_status else "local changes present")
+    init = detect_init()
     if fix:
         service_code, service_message = run("install")
-        rows.append(("Gateway service", detect_init(), "ok" if service_code == 0 else f"fail: {service_message}"))
+        add("gateway.service", init, "ok" if service_code == 0 else "warn", "installed" if service_code == 0 else service_message)
     else:
         status_code, status_message = run("status")
-        rows.append(("Gateway", status_message, "ok" if status_code == 0 else "warn"))
+        add("gateway.status", init, "ok" if status_code == 0 else "warn", status_message)
     table = Table(title=f"GhGoyifier doctor{' --fix' if fix else ''}")
-    table.add_column("Component")
+    table.add_column("Check")
     table.add_column("Target")
     table.add_column("Status")
-    for component, target, status in rows:
+    table.add_column("Details")
+    for check, target, status, detail in rows:
         color = "green" if status == "ok" else "yellow" if status == "warn" else "red"
-        table.add_row(component, target, f"[{color}]{status}[/{color}]")
+        table.add_row(check, target, f"[{color}]{status.upper()}[/{color}]", detail)
     console.print(table)
-    return 0 if all(status in {"ok", "warn"} for _, _, status in rows) else 1
+    failed = [check for check, _, status, _ in rows if status == "fail"]
+    if failed:
+        console.print(f"[red]Unresolved checks:[/red] {', '.join(failed)}")
+    return 1 if failed else 0
 
 
 def main(argv: list[str] | None = None) -> int:
