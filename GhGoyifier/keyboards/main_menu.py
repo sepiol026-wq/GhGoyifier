@@ -31,12 +31,11 @@ def help_keyboard(is_callback: bool = False, lang: str = "en") -> dict:
 
 def language_keyboard(lang: str, owner_id: int) -> dict:
     builder = KbdBuilder(kind="inline")
-    for code in ("en", "ru"):
-        builder.btn(
-            tr(lang, "language.en" if code == "en" else "language.ru"),
-            callback_data=protect(f"lang:set:{code}:{owner_id}"),
-            icon_custom_emoji_id=flags[code].split('emoji-id="', 1)[1].split('"', 1)[0],
-        )
+    for code in ("en", "ru", "uk", "kk", "de"):
+        options = {"callback_data": protect(f"lang:set:{code}:{owner_id}")}
+        if code in flags:
+            options["icon_custom_emoji_id"] = flags[code].split('emoji-id="', 1)[1].split('"', 1)[0]
+        builder.btn(tr(lang, f"language.{code}"), **options)
     builder.row()
     builder.btn(tr(lang, "language.close"), callback_data=protect("nav:close"))
     builder.row()

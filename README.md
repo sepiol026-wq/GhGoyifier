@@ -168,6 +168,11 @@ ghgoyifi doctor
 ghgoyifi --version
 ```
 
+`ghgoyifi update` checks the configured Git remote, compares the current commit and release version, fast-forwards only when an update exists, refreshes dependencies, runs a compile check, and restarts the gateway. Config, database, secrets, and untracked files are preserved. Tracked local edits stop the update safely; failed validation or restart rolls back to the previous commit.
+
+The Telegram interface supports English, Russian, Ukrainian, Kazakh, and German. Use `/setlang` in private chat to change your own language, or in a group as an administrator to change the language for that group.
+
+
 The gateway detects the host init environment. Native service definitions are used where that init system has a stable service interface. On init environments without a portable service contract, GhGoyifier uses a direct supervised fallback for start, stop, restart, and status; enable/disable is reported as not applicable rather than being falsely claimed as native support.
 
 ## Telegram workflow

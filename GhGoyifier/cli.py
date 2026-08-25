@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -19,6 +21,74 @@ from GhGoyifier.gateway import detect_init, logfile, run
 console = Console()
 default_config = os.environ.get("GHGOYIFIER_CONFIG", "config.toml")
 sensitive = {"bot.token", "database.password", "github_app.webhook_secret", "GOYIFIER_DATA_KEY"}
+
+
+def _version(root: Path | None = None) -> str:
+    target = root or Path(__file__).resolve().parent.parent
+    version_file = target / "VERSION"
+    return version_file.read_text().strip() if version_file.exists() else "0.0.0"
+
+
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=root, text=True, capture_output=True)
+
+
+def update_command(args: argparse.Namespace) -> int:
+    root = Path(__file__).resolve().parent.parent
+    if not (root / ".git").exists():
+        console.print("[red]Update requires a Git checkout.[/red]")
+        return 1
+    remote = "origin"
+    origin_url = _git(root, "remote", "get-url", "origin").stdout.strip()
+    if "GhGoyifier" not in origin_url:
+        candidate = _git(root, "remote", "get-url", "ghgoyifier")
+        if candidate.returncode == 0:
+            remote = "ghgoyifier"
+    branch = "main"
+    fetched = _git(root, "fetch", "--prune", remote, branch)
+    if fetched.returncode:
+        console.print(f"[red]Could not fetch updates:[/red] {fetched.stderr.strip()}")
+        return 1
+    target = f"{remote}/{branch}"
+    local_sha = _git(root, "rev-parse", "HEAD").stdout.strip()
+    remote_sha = _git(root, "rev-parse", target).stdout.strip()
+    if local_sha == remote_sha:
+        console.print(f"[green]Already up to date.[/green] version={_version(root)} commit={local_sha[:12]}")
+        return 0
+    dirty = _git(root, "diff", "--quiet").returncode or _git(root, "diff", "--cached", "--quiet").returncode
+    if dirty:
+        console.print("[red]Tracked local changes detected; update cancelled to protect them.[/red]")
+        return 1
+    counts = _git(root, "rev-list", "--left-right", "--count", f"HEAD...{target}").stdout.strip().split()
+    behind = counts[1] if len(counts) == 2 else "?"
+    old_version = _version(root)
+    merged = _git(root, "merge", "--ff-only", target)
+    if merged.returncode:
+        console.print(f"[red]Fast-forward update failed:[/red] {merged.stderr.strip()}")
+        return 1
+    new_version = _version(root)
+    python = root / ".venv" / "bin" / "python"
+    if not python.exists():
+        python = Path(sys.executable)
+    if shutil.which("uv"):
+        install = subprocess.run(["uv", "pip", "install", "--python", str(python), "-r", "requirements.txt"], cwd=root, text=True, capture_output=True)
+    else:
+        install = subprocess.run([str(python), "-m", "pip", "install", "-r", "requirements.txt"], cwd=root, text=True, capture_output=True)
+    checks = subprocess.run([str(python), "-m", "compileall", "-q", "GhGoyifier"], cwd=root, text=True, capture_output=True)
+    if install.returncode or checks.returncode:
+        _git(root, "reset", "--hard", local_sha)
+        run("restart")
+        detail = (install.stderr or checks.stderr).strip()
+        console.print(f"[red]Update validation failed; rolled back.[/red] {detail}")
+        return 1
+    code, message = run("restart")
+    if code:
+        _git(root, "reset", "--hard", local_sha)
+        run("restart")
+        console.print(f"[red]Gateway restart failed; rolled back.[/red] {message}")
+        return 1
+    console.print(f"[green]Updated and restarted gateway.[/green] {old_version} → {new_version}, commits behind={behind}")
+    return 0
 
 
 def _set_value(data: dict[str, Any], path: str, value: Any) -> None:
@@ -170,7 +240,7 @@ def logs_command(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="GhGoyifier", description="GhGoyifier Telegram/GitHub gateway")
-    parser.add_argument("--version", action="version", version="GhGoyifier 1.0")
+    parser.add_argument("--version", action="version", version=f"GhGoyifier {_version()}")
     sub = parser.add_subparsers(dest="command")
     config = sub.add_parser("config", help="configure and edit TOML settings")
     config.add_argument("params", nargs="*", metavar="ACTION [KEY] [VALUE]")
@@ -188,6 +258,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.set_defaults(func=lambda a: _doctor())
     status = sub.add_parser("status", help="show gateway status")
     status.set_defaults(func=lambda a: _gateway(argparse.Namespace(action="status")))
+    update = sub.add_parser("update", help="check, install, and restart available updates")
+    update.set_defaults(func=update_command)
     return parser
 
 

@@ -3,10 +3,13 @@ from __future__ import annotations
 
 from typing import Any
 
-langs = ("en", "ru")
+langs = ("en", "ru", "uk", "kk", "de")
 flags = {
     "ru": '<tg-emoji emoji-id="5449408995691341691">🇷🇺</tg-emoji>',
     "en": '<tg-emoji emoji-id="5202196682497859879">🇬🇧</tg-emoji>',
+    "uk": '<tg-emoji emoji-id="5447309366568953338">🇺🇦</tg-emoji>',
+    "kk": '<tg-emoji emoji-id="5228718354658769982">🇰🇿</tg-emoji>',
+    "de": '<tg-emoji emoji-id="5409360418520967565">🇩🇪</tg-emoji>',
 }
 labels = {
     "en": {
@@ -43,8 +46,7 @@ text = {
         "language.title": "Choose interface language",
         "language.saved": "Language changed to English.",
         "language.saved_ru": "Language changed to Russian.",
-        "language.en": "English",
-        "language.ru": "Russian",
+        "language.en": "English", "language.ru": "Russian", "language.uk": "Ukrainian", "language.kk": "Kazakh", "language.de": "German",
         "language.close": "✕ Close",
         "language.only_admin": "Only chat administrators can change the chat language.",
         "language.private_only": "This language setting is available only in private chat.",
@@ -59,8 +61,7 @@ text = {
         "language.title": "Выберите язык интерфейса",
         "language.saved": "Язык изменён на английский.",
         "language.saved_ru": "Язык изменён на русский.",
-        "language.en": "Английский",
-        "language.ru": "Русский",
+        "language.en": "Английский", "language.ru": "Русский", "language.uk": "Украинский", "language.kk": "Казахский", "language.de": "Немецкий",
         "language.close": "✕ Закрыть",
         "language.only_admin": "Только администраторы чата могут менять язык чата.",
         "language.private_only": "Эта настройка языка доступна только в личном чате.",
@@ -90,9 +91,39 @@ def event_label(lang: str | None, event: str) -> str:
 
 
 def flag(lang: str) -> str:
-    return flags[normalize(lang)]
+    return flags.get(normalize(lang), "")
 
 
 def language_name(lang: str | None) -> str:
     language = normalize(lang)
-    return tr(language, "language.ru" if language == "ru" else "language.en")
+    return tr(language, f"language.{language}")
+
+
+labels.update({
+    "uk": {"push": "Пуш", "pull_request": "Запит на злиття", "issues": "Задача", "issue_comment": "Коментар до задачі", "pull_request_review": "Перевірка запиту на злиття", "pull_request_review_comment": "Коментар до рядка запиту", "commit_comment": "Коментар до коміту", "release": "Реліз", "workflow_run": "Запуск Workflow", "deployment_status": "Розгортання", "discussion": "Обговорення", "discussion_comment": "Коментар до обговорення", "fork": "Форк", "star": "Зірка", "create": "Створення посилання", "delete": "Видалення посилання", "member": "Учасник репозиторію", "public": "Видимість репозиторію", "page_build": "Збірка Pages", "repository": "Репозиторій", "team": "Команда", "membership": "Членство", "organization": "Організація", "project": "Проєкт", "project_card": "Картка проєкту", "pull_request_review_thread": "Обговорення перевірки", "package": "Пакет", "workflow_job": "Завдання Workflow", "check_run": "Перевірка", "check_suite": "Набір перевірок", "status": "Статус коміту", "code_scanning": "Сповіщення аналізу коду", "secret_scanning": "Сповіщення пошуку секретів", "vulnerability_alert": "Сповіщення про вразливість", "security_advisory": "Рекомендація безпеки", "label": "Мітка", "milestone": "Етап", "branch_protection_rule": "Правило захисту гілки"},
+    "kk": {"push": "Пуш", "pull_request": "Pull request", "issues": "Мәселе", "issue_comment": "Мәселе пікірі", "pull_request_review": "Pull request тексеруі", "pull_request_review_comment": "Pull request жол пікірі", "commit_comment": "Коммит пікірі", "release": "Релиз", "workflow_run": "Workflow іске қосылуы", "deployment_status": "Орналастыру", "discussion": "Талқылау", "discussion_comment": "Талқылау пікірі", "fork": "Fork", "star": "Жұлдыз", "create": "Сілтеме жасалды", "delete": "Сілтеме жойылды", "member": "Репозиторий мүшесі", "public": "Репозиторий көрінуі", "page_build": "Pages құрастырылымы", "repository": "Репозиторий", "team": "Команда", "membership": "Мүшелік", "organization": "Ұйым", "project": "Жоба", "project_card": "Жоба картасы", "pull_request_review_thread": "Pull request талқылауы", "package": "Пакет", "workflow_job": "Workflow тапсырмасы", "check_run": "Тексеру", "check_suite": "Тексерулер жиыны", "status": "Коммит күйі", "code_scanning": "Код талдауы ескертуі", "secret_scanning": "Құпияларды іздеу ескертуі", "vulnerability_alert": "Осалдық ескертуі", "security_advisory": "Қауіпсіздік кеңесі", "label": "Белгі", "milestone": "Кезең", "branch_protection_rule": "Бұтақ қорғау ережесі"},
+    "de": {"push": "Push", "pull_request": "Pull Request", "issues": "Issue", "issue_comment": "Issue-Kommentar", "pull_request_review": "Pull-Request-Review", "pull_request_review_comment": "Pull-Request-Zeilenkommentar", "commit_comment": "Commit-Kommentar", "release": "Release", "workflow_run": "Workflow-Lauf", "deployment_status": "Deployment", "discussion": "Diskussion", "discussion_comment": "Diskussionskommentar", "fork": "Fork", "star": "Stern", "create": "Referenz erstellt", "delete": "Referenz gelöscht", "member": "Repository-Mitglied", "public": "Repository-Sichtbarkeit", "page_build": "Pages-Build", "repository": "Repository", "team": "Team", "membership": "Mitgliedschaft", "organization": "Organisation", "project": "Projekt", "project_card": "Projektkarte", "pull_request_review_thread": "Pull-Request-Review-Thread", "package": "Paket", "workflow_job": "Workflow-Aufgabe", "check_run": "Prüfung", "check_suite": "Prüfungsgruppe", "status": "Commit-Status", "code_scanning": "Code-Scanning-Warnung", "secret_scanning": "Secret-Scanning-Warnung", "vulnerability_alert": "Schwachstellenwarnung", "security_advisory": "Sicherheitshinweis", "label": "Label", "milestone": "Meilenstein", "branch_protection_rule": "Branch-Schutzregel"},
+})
+
+for _code, _names in {"uk": "Українська", "kk": "Қазақша", "de": "Deutsch"}.items():
+    text[_code] = {
+        "language.title": "Оберіть мову інтерфейсу" if _code == "uk" else "Интерфейс тілін таңдаңыз" if _code == "kk" else "Sprache auswählen",
+        "language.saved": "Мову змінено на обрану." if _code == "uk" else "Тіл таңдалды." if _code == "kk" else "Sprache geändert.",
+        "language.saved_ru": "Мову змінено на російську." if _code == "uk" else "Тіл орысшаға өзгертілді." if _code == "kk" else "Sprache auf Russisch geändert.",
+        "language.en": "Англійська" if _code == "uk" else "Ағылшынша" if _code == "kk" else "English",
+        "language.ru": "Російська" if _code == "uk" else "Орысша" if _code == "kk" else "Russisch",
+        "language.uk": _names,
+        "language.kk": _names,
+        "language.de": _names,
+        "language.close": "✕ Закрити" if _code == "uk" else "✕ Жабу" if _code == "kk" else "✕ Schließen",
+        "language.only_admin": "Тільки адміністратори можуть змінювати мову чату." if _code == "uk" else "Чат тілін тек әкімшілер өзгерте алады." if _code == "kk" else "Nur Chat-Administratoren können die Chatsprache ändern.",
+        "language.current": "Поточна мова: {name}" if _code == "uk" else "Ағымдағы тіл: {name}" if _code == "kk" else "Aktuelle Sprache: {name}",
+        "events.title": "Налаштування подій GitHub" if _code == "uk" else "GitHub оқиғаларының баптаулары" if _code == "kk" else "GitHub-Ereigniseinstellungen",
+        "events.stale": "Деякі події не підписані в GitHub. Виконайте /reinstall." if _code == "uk" else "Кейбір оқиғалар GitHub-та қосылмаған. /reinstall орындаңыз." if _code == "kk" else "Einige Ereignisse sind bei GitHub nicht abonniert. Führe /reinstall aus.",
+        "menu.connect": "Підключити" if _code == "uk" else "Қосу" if _code == "kk" else "Verbinden",
+        "menu.add": "Додати до чату" if _code == "uk" else "Чатқа қосу" if _code == "kk" else "Zum Chat hinzufügen",
+        "menu.repos": "Репозиторії" if _code == "uk" else "Репозиторийлер" if _code == "kk" else "Repos",
+        "menu.chats": "Мої чати" if _code == "uk" else "Чаттарым" if _code == "kk" else "Meine Chats",
+        "menu.help": "Допомога" if _code == "uk" else "Көмек" if _code == "kk" else "Hilfe",
+        "menu.project": "GhGoyifier",
+    }
