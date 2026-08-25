@@ -79,25 +79,22 @@ else
 fi
 
 say "Installed aliases: ghgoyifi, ghgoyifier, GhGoyifier"
-say "Run: $BIN_DIR/ghgoyifi gateway start"
-case ":${PATH}:" in *":$BIN_DIR:"*) ;; *)
-  shell_name=${SHELL##*/}
-  if [ "$shell_name" = "fish" ]; then
-    fish -c 'fish_add_path -U -- $argv[1]' fish "$BIN_DIR" 2>/dev/null || true
-    fish_config=${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish
-    mkdir -p "$(dirname "$fish_config")"
-    fish_line="fish_add_path -m \"$BIN_DIR\""
-    grep -Fqx "$fish_line" "$fish_config" 2>/dev/null || printf '%s\n' "$fish_line" >> "$fish_config"
-    printf '\nPATH updated for fish: %s\n' "$BIN_DIR"
-  elif [ "$shell_name" = "zsh" ]; then
-    shell_config=${ZDOTDIR:-$HOME}/.zshrc
-    path_line="export PATH=\"$BIN_DIR:\$PATH\""
-    grep -Fqx "$path_line" "$shell_config" 2>/dev/null || printf '%s\n' "$path_line" >> "$shell_config"
-    printf '\nPATH updated for zsh: %s\n' "$BIN_DIR"
-  elif [ "$shell_name" = "bash" ]; then
-    shell_config=${BASH_ENV:-$HOME/.bashrc}
-    path_line="export PATH=\"$BIN_DIR:\$PATH\""
-    grep -Fqx "$path_line" "$shell_config" 2>/dev/null || printf '%s\n' "$path_line" >> "$shell_config"
-    printf '\nPATH updated for bash: %s\n' "$BIN_DIR"
+COMMAND_BIN="$BIN_DIR/ghgoyifi"
+if [ "$(id -u)" -eq 0 ]; then
+  PRIVILEGE=""
+elif command -v sudo >/dev/null; then
+  PRIVILEGE=sudo
+fi
+if [ -n "${PRIVILEGE:-}" ] || [ "$(id -u)" -eq 0 ]; then
+  if ${PRIVILEGE:-} install -m 755 "$BIN_DIR/ghgoyifi" /usr/local/bin/ghgoyifi && \
+     ${PRIVILEGE:-} ln -sfn ghgoyifi /usr/local/bin/ghgoyifier && \
+     ${PRIVILEGE:-} ln -sfn ghgoyifi /usr/local/bin/GhGoyifier; then
+    COMMAND_BIN=/usr/local/bin/ghgoyifi
+    say "Installed global commands in /usr/local/bin"
+  else
+    say "Global command installation failed; user-local aliases remain available"
   fi
-  ;; esac
+else
+  say "sudo is unavailable; user-local aliases remain in $BIN_DIR"
+fi
+say "Run: $COMMAND_BIN gateway start"
