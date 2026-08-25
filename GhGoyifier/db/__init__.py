@@ -26,6 +26,13 @@ async def migrate_models(tortoise_config: dict):
 async def init_orm(tortoise_config: dict) -> None:
     await Tortoise.init(config=tortoise_config)
     connection = Tortoise.get_connection("default")
+    for table in ("user", "chat"):
+        try:
+            await connection.execute_script(
+                f"ALTER TABLE {table} ADD COLUMN language VARCHAR(2) NOT NULL DEFAULT 'en'"
+            )
+        except Exception:
+            pass
     await connection.execute_script(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_eventsetting_chat_event "
         "ON eventsetting(chat_id, event_type)"

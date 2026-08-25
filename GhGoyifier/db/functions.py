@@ -30,6 +30,15 @@ class User(models.User):
         return await cls.all().count()
 
     @classmethod
+    async def set_language(cls, telegram_id: int, language: str) -> None:
+        await cls.filter(telegram_id=telegram_id).update(language=language)
+
+    @classmethod
+    async def get_language(cls, telegram_id: int) -> str:
+        user = await cls.get_or_none(telegram_id=telegram_id)
+        return user.language if user else "en"
+
+    @classmethod
     async def write_token(cls, telegram_id: int, token: str):
         await cls.filter(telegram_id=telegram_id).update(token=encrypt(token))
 
@@ -60,6 +69,15 @@ class Chat(models.Chat):
     @classmethod
     async def get_count(cls) -> int:
         return await cls.all().count()
+
+    @classmethod
+    async def set_language(cls, chat_id: int, language: str) -> None:
+        await cls.filter(chat_id=chat_id).update(language=language)
+
+    @classmethod
+    async def get_language(cls, chat_id: int) -> str:
+        chat = await cls.get_or_none(chat_id=chat_id)
+        return chat.language if chat else "en"
 
     @classmethod
     async def get_integrations(cls, chat_id: int) -> list:

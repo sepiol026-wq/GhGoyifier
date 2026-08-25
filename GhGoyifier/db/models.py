@@ -41,6 +41,7 @@ class User(Model):
     id = fields.BigIntField(pk=True)
     telegram_id = fields.BigIntField(unique=True)
     token = fields.CharField(max_length=255, null=True)
+    language = fields.CharField(max_length=2, default="en")
     created_at = fields.DatetimeField(auto_now_add=True)
 
 
@@ -59,6 +60,7 @@ class Chat(Model):
     chat_id = fields.BigIntField(unique=True)
     topic_id = fields.BigIntField(null=True)
     floodwait = fields.IntField(default=0)
+    language = fields.CharField(max_length=2, default="en")
 
 
 class Installation(Model):

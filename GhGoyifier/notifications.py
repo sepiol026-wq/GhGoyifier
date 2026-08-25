@@ -14,8 +14,9 @@ import aiohttp
 
 from GhGoyifier.anti_abuse import SilentDrop
 from GhGoyifier.config import Config
-from GhGoyifier.db.functions import EventSetting, Integration
+from GhGoyifier.db.functions import Chat, EventSetting, Integration
 from GhGoyifier.goygram_bot import GoyBot, inline_keyboard
+from GhGoyifier.i18n import event_label
 
 _event_names = {
     "PushEvent": "push",
@@ -144,7 +145,7 @@ def _repository_name(value: dict) -> str:
     return str((value.get("repo") or {}).get("name") or (value.get("repository") or {}).get("full_name") or "")
 
 
-async def _event_text(session: aiohttp.ClientSession, repo: str, event: dict, token: str | None) -> tuple[str, str, str]:
+async def _event_text(session: aiohttp.ClientSession, repo: str, event: dict, token: str | None, lang: str = "en") -> tuple[str, str, str]:
     event_type = _event_names.get(str(event.get("type")), "github")
     payload = event.get("payload") or {}
     actor = html.escape(str((event.get("actor") or {}).get("display_login") or (event.get("actor") or {}).get("login") or "GitHub"))
@@ -195,7 +196,7 @@ async def _event_text(session: aiohttp.ClientSession, repo: str, event: dict, to
             blocks.append(block + "</blockquote>")
         compare_url = f"https://github.com/{repo}/compare/{before}...{head}" if before and head else f"https://github.com/{repo}/commits/{branch}"
         return f'<b>📏 On {html.escape(repo)}:{html.escape(branch)} new commits!</b>\n{len(commits)} commits pushed.\n\n' + "\n".join(blocks), compare_url, "Compare changes"
-    label = event_labels.get(event_type, "GitHub event")
+    label = event_label(lang, event_type)
     parts = [f"<b>{html.escape(label)}</b>", f"<code>{html.escape(repo)}</code>", f"{actor} {action}"]
     if title:
         parts.append(f"<i>{title}</i>")
@@ -263,9 +264,9 @@ def _event_key(repo: str, event: dict) -> str:
     return "event:" + hashlib.sha256(raw).hexdigest()
 
 
-def _notification_text(item: dict, repo: str) -> tuple[str, str, str]:
+def _notification_text(item: dict, repo: str, lang: str = "en") -> tuple[str, str, str]:
     subject = item.get("subject") or {}
-    kind = html.escape(event_labels.get(str(subject.get("type") or "").lower(), str(subject.get("type") or "Notification")))
+    kind = html.escape(event_label(lang, str(subject.get("type") or "").lower()))
     title = html.escape(str(subject.get("title") or "GitHub notification"))
     reason = html.escape(str(item.get("reason") or "subscribed"))
     return f'<b>GitHub {kind}</b>\n<code>{html.escape(repo)}</code>\n<i>{title}</i>\nReason: {reason}', f"https://github.com/{repo}", "Open on GitHub"
@@ -312,7 +313,7 @@ async def _poll_notifications(session: aiohttp.ClientSession, bot: GoyBot, integ
                 continue
             for integration in matches:
                 if await EventSetting.is_enabled(integration.chat.chat_id, "issues"):
-                    await _send(bot, integration, _notification_text(item, repo))
+                    await _send(bot, integration, _notification_text(item, repo, await Chat.get_language(integration.chat.chat_id)))
 
 
 async def _poll_events(session: aiohttp.ClientSession, bot: GoyBot, integrations: list[Integration], config: Config) -> None:
@@ -357,7 +358,7 @@ async def _poll_events(session: aiohttp.ClientSession, bot: GoyBot, integrations
                 continue
             for integration in items:
                 if await EventSetting.is_enabled(integration.chat.chat_id, event_type):
-                    await _send(bot, integration, await _event_text(session, repo, event, token or None))
+                    await _send(bot, integration, await _event_text(session, repo, event, token or None, await Chat.get_language(integration.chat.chat_id)))
             if event_type == "push" and event_head:
                 _delivered_commit_heads.add(event_head)
             delivered += 1
@@ -397,9 +398,9 @@ async def _poll_commits(session: aiohttp.ClientSession, bot: GoyBot, integration
             new_commits = [item for item in commits if str(item.get("sha") or "") != previous]
         if new_commits:
             event = {"type": "PushEvent", "repo": {"name": repo}, "payload": {"ref": "refs/heads/main", "before": previous, "head": latest, "size": len(new_commits), "commits": new_commits}}
-            rendered = await _event_text(session, repo, event, token or None)
             for integration in items:
                 if await EventSetting.is_enabled(integration.chat.chat_id, "push"):
+                    rendered = await _event_text(session, repo, event, token or None, await Chat.get_language(integration.chat.chat_id))
                     await _send(bot, integration, rendered)
             _delivered_commit_heads.add(latest)
             _log.info("commits processed repo=%s new=%s", repo, len(new_commits))

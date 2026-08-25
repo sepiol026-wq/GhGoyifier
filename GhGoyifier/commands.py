@@ -14,6 +14,7 @@ users_commands = {
     "token": "Set or replace your GitHub token (DM)",
     "set_topic": "Send notifications to current forum topic",
     "events": "Toggle event types per chat",
+    "setlang": "Choose the language for your private chat or group",
 }
 
 

@@ -18,6 +18,7 @@ from GhGoyifier.goygram_bot import (
     inline_keyboard,
     message_from_packet,
 )
+from GhGoyifier.i18n import event_label, flag, language_name, normalize, tr
 from GhGoyifier.keyboards.integration import (
     build_integrations_keyboard,
     build_management_keyboard,
@@ -30,6 +31,7 @@ from GhGoyifier.keyboards.main_menu import (
     btn_my_chats,
     btn_repos,
     help_keyboard,
+    language_keyboard,
     main_menu_keyboard,
 )
 from GhGoyifier.runtime import get_bot_username
@@ -187,10 +189,11 @@ async def _available_events(chat_id: int, host: str) -> set[str] | None:
 async def _event_keyboard(chat_id: int, config: Config, msg: GoyMessage | None = None) -> tuple[str, dict]:
     available = None if config.notifications.mode == "polling" else await _available_events(chat_id, config.api.host)
     settings = await EventSetting.for_chat(chat_id)
+    lang = await Chat.get_language(chat_id)
     rows = [
         [
             (
-                f"{'✅' if item.enabled else '❌'}{'⚠️' if available is not None and item.event_type != 'ping' and item.event_type not in available else ''} {event_labels.get(item.event_type, item.event_type)}",
+                f"{'✅' if item.enabled else '❌'}{'⚠️' if available is not None and item.event_type != 'ping' and item.event_type not in available else ''} {event_label(lang, item.event_type)}",
                 "callback_data",
                 f"toggle_event:{item.event_type}",
             )
@@ -202,9 +205,9 @@ async def _event_keyboard(chat_id: int, config: Config, msg: GoyMessage | None =
         available is not None
         and ({item.event_type for item in settings} - {"ping"}) - available
     )
-    text = "✨ Github events settings"
+    text = f"<b>{tr(lang, 'events.title')}</b>"
     if stale:
-        text += "\n\n⚠️ Some events are not subscribed on GitHub. Run /reinstall."
+        text += f"\n\n{tr(lang, 'events.stale')}"
     rows.append([_nav_button(msg, "integ:list") if msg else ("« Back", "callback_data", "integ:list")])
     return text, inline_keyboard(rows)
 
@@ -379,6 +382,20 @@ async def on_message(msg: Any, app, config: Config, bot: GoyBot):
         if message.chat_id != message.from_user.id:
             return await message.answer("Please send /help in private chat.")
         return await message.answer(help, reply_markup=help_keyboard())
+    if _command(text, "setlang"):
+        if _is_dm(message):
+            if not await User.is_registered(message.from_user.id):
+                await User.register(message.from_user.id)
+            lang = await User.get_language(message.from_user.id)
+        else:
+            if not await is_user_admin(bot, int(message.chat_id or 0), message.from_user.id):
+                return await message.answer("Only chat administrators can change the chat language.")
+            await Chat.ensure_registered(int(message.chat_id))
+            lang = await Chat.get_language(int(message.chat_id))
+        return await message.answer(
+            f"{flag(lang)} <b>{tr(lang, 'language.title')}</b>\n{tr(lang, 'language.current', name=language_name(lang))}",
+            reply_markup=language_keyboard(lang),
+        )
     if _command(text, "mail"):
         if message.chat_id != config.settings.owner_id:
             return await message.answer(
@@ -616,6 +633,21 @@ async def on_callback(cb: Any, app, config: Config, bot: GoyBot):
     if data.startswith(("repos:", "mychat:", "mychats", "myinteg:", "mydelete:", "myevents:", "myevent:", "token:")) and chat_id != user_id:
         await cb.answer("This menu is available only in private chat.", alert=True)
         return
+    if data.startswith("lang:set:"):
+        selected = normalize(data.rsplit(":", 1)[1])
+        if chat_id == user_id:
+            await User.register(user_id)
+            await User.set_language(user_id, selected)
+        else:
+            if not await is_user_admin(bot, chat_id, user_id):
+                return await cb.answer(tr("en", "language.only_admin"), alert=True)
+            await Chat.ensure_registered(int(chat_id))
+            await Chat.set_language(int(chat_id), selected)
+        await cb.answer(tr(selected, "language.saved" if selected == "en" else "language.saved_ru"), alert=True)
+        return await msg.edit_text(
+            f"{flag(selected)} <b>{tr(selected, 'language.title')}</b>\n{tr(selected, 'language.current', name=language_name(selected))}",
+            language_keyboard(selected),
+        )
     if data == "menu:connect":
         app.set_state(chat_id, user_id, "token_main")
         await cb.answer()
