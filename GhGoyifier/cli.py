@@ -197,34 +197,48 @@ def configure(path: str) -> int:
             data[section].setdefault(key, value)
     console.print(Panel.fit("[bold cyan]GhGoyifier setup[/bold cyan]\nOnly operator-important settings are requested. Technical defaults are configured automatically.\nPress Enter to keep a value; secrets are never displayed.", border_style="cyan"))
 
+    def default_input(label: str, current: str) -> str:
+        value = console.input(f"{label} ({current}): ")
+        return value.strip() or current
+
     def text(section: str, key: str, label: str, secret: bool = False, default: str = "") -> None:
         current = str(data[section].get(key, default))
         if secret:
             value = Prompt.ask(label + " (hidden; Enter keeps current)", password=True, default="")
         else:
-            value = Prompt.ask(label, default=current) if current else Prompt.ask(label)
+            value = default_input(label, current) if current else console.input(f"{label}: ")
         if value != "":
             _set_value(data, f"{section}.{key}", _coerce(value))
 
     def number(section: str, key: str, label: str, default: float) -> None:
         current = str(data[section].get(key, default))
-        value = Prompt.ask(label, default=current)
+        value = default_input(label, current)
         _set_value(data, f"{section}.{key}", _coerce(value))
 
     def boolean(section: str, key: str, label: str, default: bool) -> None:
         current = bool(data[section].get(key, default))
-        _set_value(data, f"{section}.{key}", Confirm.ask(label, default=current))
+        while True:
+            value = console.input(f"{label} [{'Y/n' if current else 'y/N'}]: ").strip().lower()
+            if not value:
+                _set_value(data, f"{section}.{key}", current)
+                return
+            if value in {"y", "yes"}:
+                _set_value(data, f"{section}.{key}", True)
+                return
+            if value in {"n", "no"}:
+                _set_value(data, f"{section}.{key}", False)
+                return
+            console.print("[yellow]Please enter Y or N.[/yellow]")
 
     console.print("\n[bold]1/4 · Telegram bot[/bold]")
     text("bot", "token", "Telegram Bot API token", True)
     console.print("\n[bold]2/4 · Bot behavior[/bold]")
     number("settings", "owner_id", "Owner Telegram user ID", 0)
     current_buttons = str(data["settings"].get("buttons", "inline"))
-    button_prompt = "Button type [inline/in-msg]"
-    button_value = Prompt.ask(button_prompt, default=current_buttons)
+    button_value = default_input("Button type (inline/in-msg)", current_buttons)
     while button_value not in {"inline", "in-msg"}:
         console.print("[yellow]Please select inline or in-msg.[/yellow]")
-        button_value = Prompt.ask(button_prompt, default=current_buttons)
+        button_value = default_input("Button type (inline/in-msg)", current_buttons)
     data["settings"]["buttons"] = button_value
     console.print("\n[bold]3/4 · GitHub notifications[/bold]")
     number("notifications", "poll_interval", "Polling interval in seconds", 30)
