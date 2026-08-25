@@ -15,7 +15,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
-from GhGoyifier.config import Config
+from GhGoyifier.config import Config, parse_config
 from GhGoyifier.gateway import detect_init, logfile, run
 
 console = Console()
@@ -255,7 +255,9 @@ def build_parser() -> argparse.ArgumentParser:
     logs.add_argument("--file", default=str(logfile))
     logs.set_defaults(func=logs_command)
     doctor = sub.add_parser("doctor", help="show runtime and init diagnostics")
-    doctor.set_defaults(func=lambda a: _doctor())
+    doctor.add_argument("--fix", action="store_true", help="repair safe local prerequisites")
+    doctor.add_argument("--file", "-f", default=default_config)
+    doctor.set_defaults(func=lambda a: _doctor(a.file, a.fix))
     status = sub.add_parser("status", help="show gateway status")
     status.set_defaults(func=lambda a: _gateway(argparse.Namespace(action="status")))
     update = sub.add_parser("update", help="check, install, and restart available updates")
@@ -269,17 +271,77 @@ def _gateway(args: argparse.Namespace) -> int:
     return code
 
 
-def _doctor() -> int:
-    table = Table(title="GhGoyifier doctor")
+def _doctor(path: str = default_config, fix: bool = False) -> int:
+    root = Path(__file__).resolve().parent.parent
+    config_path = Path(path).expanduser()
+    rows: list[tuple[str, str, str]] = []
+    if fix:
+        config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if config_path.exists() and not config_path.is_symlink():
+            config_path.chmod(0o600)
+    rows.append(("Python", sys.executable, "ok" if sys.version_info >= (3, 10) else "fail"))
+    venv = root / ".venv" / "bin" / "python"
+    if fix and not venv.exists():
+        if shutil.which("uv"):
+            subprocess.run(["uv", "venv", "--python", sys.executable, str(root / ".venv")], cwd=root, check=False, capture_output=True)
+        else:
+            subprocess.run([sys.executable, "-m", "venv", str(root / ".venv")], cwd=root, check=False, capture_output=True)
+    rows.append(("Virtualenv", str(venv), "ok" if venv.exists() else "fail"))
+    if config_path.is_symlink():
+        rows.append(("Config", str(config_path), "fail: symlink refused"))
+        valid = False
+    else:
+        try:
+            parse_config(str(config_path))
+            valid = True
+            rows.append(("Config", str(config_path), "ok"))
+        except Exception as exc:
+            valid = False
+            rows.append(("Config", str(config_path), f"fail: {type(exc).__name__}"))
+    db_path = root / "production-database.sqlite3"
+    if valid:
+        try:
+            configured = toml.load(config_path).get("database", {}).get("file_name")
+            if configured:
+                db_path = Path(configured).expanduser()
+                if not db_path.is_absolute():
+                    db_path = root / db_path
+        except Exception:
+            pass
+    if fix and db_path.exists() and not db_path.is_symlink():
+        db_path.chmod(0o600)
+    rows.append(("Database", str(db_path), "ok" if not db_path.is_symlink() else "fail: symlink refused"))
+    python = venv if venv.exists() else Path(sys.executable)
+    if venv.exists():
+        if shutil.which("uv"):
+            dependency = subprocess.run(["uv", "pip", "check", "--python", str(python)], cwd=root, text=True, capture_output=True)
+        else:
+            dependency = subprocess.run([str(python), "-m", "pip", "check"], cwd=root, text=True, capture_output=True)
+        if fix and dependency.returncode:
+            if shutil.which("uv"):
+                dependency = subprocess.run(["uv", "pip", "install", "--python", str(python), "-r", "requirements.txt"], cwd=root, text=True, capture_output=True)
+            else:
+                dependency = subprocess.run([str(python), "-m", "pip", "install", "-r", "requirements.txt"], cwd=root, text=True, capture_output=True)
+        rows.append(("Dependencies", "requirements.txt", "ok" if dependency.returncode == 0 else "fail"))
+    else:
+        rows.append(("Dependencies", "requirements.txt", "fail: virtualenv missing"))
+    compile_check = subprocess.run([str(python), "-m", "compileall", "-q", "GhGoyifier"], cwd=root, capture_output=True)
+    rows.append(("Python compile", "GhGoyifier", "ok" if compile_check.returncode == 0 else "fail"))
+    if fix:
+        service_code, service_message = run("install")
+        rows.append(("Gateway service", detect_init(), "ok" if service_code == 0 else f"fail: {service_message}"))
+    else:
+        status_code, status_message = run("status")
+        rows.append(("Gateway", status_message, "ok" if status_code == 0 else "warn"))
+    table = Table(title=f"GhGoyifier doctor{' --fix' if fix else ''}")
     table.add_column("Component")
-    table.add_column("Value")
-    table.add_row("Python", sys.executable)
-    table.add_row("Config", default_config)
-    table.add_row("Init", detect_init())
-    table.add_row("Log", str(logfile))
-    table.add_row("Package", "GhGoyifier")
+    table.add_column("Target")
+    table.add_column("Status")
+    for component, target, status in rows:
+        color = "green" if status == "ok" else "yellow" if status == "warn" else "red"
+        table.add_row(component, target, f"[{color}]{status}[/{color}]")
     console.print(table)
-    return 0
+    return 0 if all(status in {"ok", "warn"} for _, _, status in rows) else 1
 
 
 def main(argv: list[str] | None = None) -> int:

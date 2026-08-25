@@ -165,6 +165,7 @@ ghgoyifi logs show --lines 200
 ghgoyifi logs follow
 ghgoyifi logs clear
 ghgoyifi doctor
+ghgoyifi doctor --fix
 ghgoyifi --version
 ```
 
@@ -174,6 +175,8 @@ The Telegram interface supports English, Russian, Ukrainian, Kazakh, and German.
 
 
 The gateway detects the host init environment. Native service definitions are used where that init system has a stable service interface. On init environments without a portable service contract, GhGoyifier uses a direct supervised fallback for start, stop, restart, and status; enable/disable is reported as not applicable rather than being falsely claimed as native support.
+
+`doctor` is read-only and checks Python, the isolated environment, configuration parsing and permissions, database path safety, dependencies, compilation, and gateway status. `doctor --fix` repairs only safe local prerequisites: it creates a missing virtual environment, installs missing dependencies, restores secure config/database permissions, compiles the package, and installs the detected gateway service definition. It never prints or replaces secrets and does not start the gateway implicitly.
 
 ## Telegram workflow
 
