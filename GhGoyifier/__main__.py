@@ -44,10 +44,17 @@ async def main():
     register_handlers(app, config, bot)
     from GhGoyifier.notifications import poll_loop
 
-    await setup_bot_commands(bot, config)
-    identity = await app.bot_req("getMe")
+    try:
+        await setup_bot_commands(bot, config)
+    except asyncio.TimeoutError:
+        logging.warning("Telegram command registration timed out; continuing with bot startup")
+    try:
+        identity = await app.bot_req("getMe")
+    except asyncio.TimeoutError:
+        identity = {}
+        logging.warning("Telegram identity request timed out; continuing with bot startup")
     set_bot_username(identity.get("username"))
-    logging.info("Bot started: @%s (%s)", identity.get("username"), identity.get("id"))
+    logging.info("Bot started: @%s (%s)", identity.get("username", "unknown"), identity.get("id", "unknown"))
     polling_task = asyncio.create_task(poll_loop(bot, config))
     try:
         await app.run()
