@@ -29,6 +29,11 @@ _proxy_names = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_prox
 
 
 def _read_proxy_environment() -> dict[str, str]:
+    runtime_dir = Path(f"/run/user/{os.getuid()}")
+    os.environ.setdefault("XDG_RUNTIME_DIR", str(runtime_dir))
+    bus = runtime_dir / "bus"
+    if bus.exists():
+        os.environ.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={bus}")
     values = {name: os.environ[name] for name in _proxy_names if os.environ.get(name)}
     files = [Path("/etc/environment"), Path.home() / ".config" / "environment.d" / "90-goyifier-proxy.conf"]
     for directory in (Path.home() / ".config" / "environment.d",):
