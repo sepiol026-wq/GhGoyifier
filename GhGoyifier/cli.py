@@ -337,6 +337,9 @@ def _doctor(path: str = default_config, fix: bool = False, as_json: bool = False
         add("database", str(db_path), "warn", "created on first gateway start")
     python = venv if venv.exists() else Path(sys.executable)
     if venv.exists():
+        if fix:
+            install_command = ["uv", "pip", "install", "--python", str(python), "-r", "requirements.txt"] if shutil.which("uv") else [str(python), "-m", "pip", "install", "-r", "requirements.txt"]
+            subprocess.run(install_command, cwd=root, text=True, capture_output=True)
         if shutil.which("uv"):
             dependency = subprocess.run(["uv", "pip", "check", "--python", str(python)], cwd=root, text=True, capture_output=True)
         else:
@@ -375,6 +378,13 @@ def _doctor(path: str = default_config, fix: bool = False, as_json: bool = False
                 add("telegram.api", bot_base, "warn", "token not configured")
         except Exception as exc:
             add("telegram.api", "Bot API", "fail", type(exc).__name__)
+        try:
+            request = urllib.request.Request("https://api.github.com/rate_limit", headers={"User-Agent": "GhGoyifier-doctor", "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                github_status = response.status
+            add("github.api", "https://api.github.com", "ok" if github_status == 200 else "warn", f"HTTP {github_status}")
+        except Exception as exc:
+            add("github.api", "https://api.github.com", "fail", type(exc).__name__)
     if db_path.exists() and db_path.suffix in {".sqlite", ".sqlite3", ".db"}:
         try:
             with sqlite3.connect(db_path) as connection:
@@ -414,10 +424,26 @@ def _doctor(path: str = default_config, fix: bool = False, as_json: bool = False
             service_path = service_paths[init]
             add("gateway.definition", str(service_path), "ok" if service_path.exists() else "warn", "service definition present" if service_path.exists() else "not installed")
     try:
-        live = subprocess.run(["pgrep", "-f", "python.*-m GhGoyifier"], text=True, capture_output=True)
-        add("gateway.process", "GhGoyifier", "ok" if live.returncode == 0 else "warn", "process running" if live.returncode == 0 else "process not found")
+        process_list = subprocess.run(["ps", "-eo", "pid=,comm=,args="], text=True, capture_output=True, check=False)
+        pids = []
+        for line in process_list.stdout.splitlines():
+            fields = line.strip().split(None, 2)
+            if len(fields) == 3 and fields[0].isdigit() and int(fields[0]) != os.getpid() and Path(fields[1]).name.startswith("python") and " -m GhGoyifier" in fields[2]:
+                pids.append(fields[0])
+        status = "ok" if len(pids) == 1 else "fail" if len(pids) > 1 else "warn"
+        detail = "process running" if len(pids) == 1 else f"duplicate processes={len(pids)}" if pids else "process not found"
+        add("gateway.process", "GhGoyifier", status, detail)
     except FileNotFoundError:
         add("gateway.process", "GhGoyifier", "warn", "pgrep unavailable")
+    if logfile.exists():
+        try:
+            recent = logfile.read_text(errors="replace").splitlines()[-200:]
+            errors = sum("ERROR" in line or "Traceback" in line for line in recent)
+            add("gateway.logs", str(logfile), "warn" if errors else "ok", f"recent errors={errors}")
+        except OSError as exc:
+            add("gateway.logs", str(logfile), "warn", type(exc).__name__)
+    else:
+        add("gateway.logs", str(logfile), "warn", "log file not created yet")
     init = detect_init()
     if fix:
         service_code, service_message = run("install")
