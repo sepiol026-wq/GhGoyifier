@@ -82,6 +82,22 @@ else
 fi
 
 say "Installed aliases: ghgoyifi, ghgoyifier, GhGoyifier"
+proxy_env_file="${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/90-goyifier-proxy.conf"
+if [ -n "${HTTP_PROXY:-}${HTTPS_PROXY:-}${ALL_PROXY:-}${NO_PROXY:-}${http_proxy:-}${https_proxy:-}${all_proxy:-}${no_proxy:-}" ]; then
+  mkdir -p "$(dirname "$proxy_env_file")"
+  umask 077
+  : > "$proxy_env_file"
+  for proxy_name in HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy no_proxy; do
+    proxy_value=${!proxy_name:-}
+    if [ -n "$proxy_value" ]; then
+      proxy_value=${proxy_value//\\/\\\\}
+      proxy_value=${proxy_value//\"/\\\"}
+      printf '%s="%s"\n' "$proxy_name" "$proxy_value" >> "$proxy_env_file"
+    fi
+  done
+  chmod 600 "$proxy_env_file"
+  say "Saved proxy environment for systemd"
+fi
 COMMAND_BIN="$BIN_DIR/ghgoyifi"
 if [ "$(id -u)" -eq 0 ]; then
   PRIVILEGE=""
