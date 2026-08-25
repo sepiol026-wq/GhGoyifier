@@ -7,7 +7,7 @@ coloredlogs
 toml
 tortoise-orm
 PyGithub
-pyjwt[crypto]>=2.8
+pyjwt[crypto]>=2.13.0
 fastapi
 uvicorn
 goygram>=0.7.19
