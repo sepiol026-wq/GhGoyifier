@@ -1,6 +1,6 @@
 # CopyLeft 2026 github.com/sepiol026-wq | telegram:@samsepi0l_ovf. Licensed under AGPLv3.
 aerich
-aiohttp==3.11.0
+aiohttp==3.14.3
 aiosqlite
 cachetools
 coloredlogs
