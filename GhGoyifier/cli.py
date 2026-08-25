@@ -8,6 +8,8 @@ import sqlite3
 import shutil
 import subprocess
 import sys
+import tarfile
+from datetime import datetime, timezone
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -91,6 +93,47 @@ def update_command(args: argparse.Namespace) -> int:
         console.print(f"[red]Gateway restart failed; rolled back.[/red] {message}")
         return 1
     console.print(f"[green]Updated and restarted gateway.[/green] {old_version} → {new_version}, commits behind={behind}")
+    return 0
+
+
+def uninstall_command(args: argparse.Namespace) -> int:
+    root = Path(__file__).resolve().parent.parent
+    resolved = root.resolve()
+    home = Path.home().resolve()
+    if resolved in {Path("/").resolve(), home} or resolved.name.lower() != "ghgoyifier":
+        console.print("[red]Refusing full uninstall: this is not an isolated GhGoyifier installation directory.[/red]")
+        console.print(f"[yellow]Detected directory:[/yellow] {resolved}")
+        return 1
+    if not args.yes and not Confirm.ask(f"Delete the entire GhGoyifier installation at {resolved}?", default=False):
+        console.print("Uninstall cancelled.")
+        return 0
+    backup = resolved.parent / f"GhGoyifier-uninstall-backup-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.tar.gz"
+    if args.backup:
+        with tarfile.open(backup, "w:gz") as archive:
+            def include(item: Path) -> bool:
+                return ".venv" not in item.parts and ".git" not in item.parts and "__pycache__" not in item.parts
+            archive.add(resolved, arcname=resolved.name, recursive=True, filter=lambda info: info if include(Path(info.name)) else None)
+        backup.chmod(0o600)
+    code, message = run("uninstall")
+    if code:
+        console.print(f"[red]Gateway uninstall failed; application was preserved.[/red] {message}")
+        return code
+    bin_dir = Path(os.environ.get("GHGOYIFIER_BIN", str(home / ".local" / "bin"))).expanduser()
+    for name in ("ghgoyifi", "ghgoyifier", "GhGoyifier"):
+        candidate = bin_dir / name
+        if candidate.is_symlink():
+            target = candidate.resolve(strict=False)
+            if target == resolved / ".venv" / "bin" / "ghgoyifi" or name != "ghgoyifi":
+                candidate.unlink(missing_ok=True)
+        elif candidate.is_file():
+            try:
+                if str(resolved) in candidate.read_text(errors="ignore"):
+                    candidate.unlink()
+            except OSError:
+                pass
+    shutil.rmtree(resolved)
+    detail = f" removed; backup={backup}" if args.backup else " removed; no backup created"
+    console.print(f"[green]GhGoyifier fully uninstalled.[/green]{detail}")
     return 0
 
 
@@ -250,7 +293,7 @@ def build_parser() -> argparse.ArgumentParser:
     config.add_argument("--file", "-f", default=default_config)
     config.set_defaults(func=config_command)
     gateway = sub.add_parser("gateway", help="manage the GhGoyifier gateway service")
-    gateway.add_argument("action", choices=["install", "start", "restart", "enable", "stop", "disable", "status"])
+    gateway.add_argument("action", choices=["install", "start", "restart", "enable", "stop", "disable", "status", "uninstall"])
     gateway.set_defaults(func=lambda a: _gateway(a))
     logs = sub.add_parser("logs", help="inspect gateway logs")
     logs.add_argument("action", nargs="?", choices=["show", "follow", "clear"], default="show")
@@ -267,6 +310,10 @@ def build_parser() -> argparse.ArgumentParser:
     status.set_defaults(func=lambda a: _gateway(argparse.Namespace(action="status")))
     update = sub.add_parser("update", help="check, install, and restart available updates")
     update.set_defaults(func=update_command)
+    uninstall = sub.add_parser("uninstall", help="backup and remove the isolated GhGoyifier installation")
+    uninstall.add_argument("--yes", action="store_true", help="skip confirmation")
+    uninstall.add_argument("--backup", action="store_true", help="create a recovery archive before removal")
+    uninstall.set_defaults(func=uninstall_command)
     return parser
 
 

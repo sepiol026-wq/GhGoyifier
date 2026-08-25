@@ -88,10 +88,42 @@ def install_service(init: str | None = None) -> tuple[int, str]:
         return 1, f"cannot install {init} service at {path}: root privileges required"
 
 
+def uninstall_service(init: str | None = None) -> tuple[int, str]:
+    init = init or detect_init()
+    paths = {
+        "systemd": Path("/etc/systemd/system/ghgoyifier.service"),
+        "runit": Path("/etc/service/ghgoyifier/run"),
+        "dinit": Path("/etc/dinit.d/ghgoyifier"),
+        "openrc": Path("/etc/init.d/ghgoyifier"),
+        "sysvinit": Path("/etc/init.d/ghgoyifier"),
+        "upstart": Path("/etc/init/ghgoyifier.conf"),
+        "s6": Path("/etc/s6/sv/ghgoyifier/run"),
+    }
+    path = paths.get(init)
+    if path is None:
+        return 0, f"init={init} has no native service definition to remove"
+    try:
+        if init == "systemd":
+            subprocess.run(["systemctl", "disable", "--now", service], check=False, capture_output=True)
+        if path.exists() or path.is_symlink():
+            path.unlink()
+        if init == "systemd":
+            subprocess.run(["systemctl", "daemon-reload"], check=False, capture_output=True)
+        return 0, f"removed {init} service definition at {path}"
+    except PermissionError:
+        return 1, f"cannot remove {init} service at {path}: root privileges required"
+
+
 def run(action: str, init: str | None = None) -> tuple[int, str]:
     init = init or detect_init()
     if action == "install":
         return install_service(init)
+    if action == "uninstall":
+        run("stop", init)
+        code, message = uninstall_service(init)
+        pidfile.unlink(missing_ok=True)
+        logfile.unlink(missing_ok=True)
+        return code, message
     if action == "status":
         if init == "systemd":
             result = subprocess.run(["systemctl", "is-active", service], text=True, capture_output=True)

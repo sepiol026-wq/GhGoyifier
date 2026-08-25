@@ -160,6 +160,9 @@ ghgoyifi gateway enable
 ghgoyifi gateway stop
 ghgoyifi gateway disable
 ghgoyifi gateway status
+ghgoyifi gateway uninstall
+
+ghgoyifi uninstall --yes
 
 ghgoyifi logs show --lines 200
 ghgoyifi logs follow
@@ -177,6 +180,8 @@ The Telegram interface supports English, Russian, Ukrainian, Kazakh, and German.
 
 
 `doctor` is a read-only production diagnostic. It validates Python, the isolated environment, TOML/schema, permissions, symlink safety, SQLite integrity and required tables/columns, dependencies, bytecode compilation, Git cleanliness and update availability, disk capacity, Telegram Bot API credentials, GitHub API connectivity, init service definition, duplicate processes, recent gateway errors, process liveness, and gateway status. `doctor --fix` repairs only safe prerequisites and then reports every unresolved check. `doctor --json` is suitable for monitoring, while `doctor --strict` returns failure for warnings as well.
+
+`gateway uninstall` removes only the gateway service registration and runtime artifacts. `uninstall --yes` removes the isolated GhGoyifier installation, virtual environment, config, database, logs, and owned wrappers. It creates no backup by default; pass `--backup` explicitly when a recovery archive is wanted. The command refuses to delete a non-isolated source checkout.
 
 The gateway detects the host init environment. Native service definitions are used where that init system has a stable service interface. On init environments without a portable service contract, GhGoyifier uses a direct supervised fallback for start, stop, restart, and status; enable/disable is reported as not applicable rather than being falsely claimed as native support.
 
