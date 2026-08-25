@@ -401,7 +401,7 @@ async def on_message(msg: Any, app, config: Config, bot: GoyBot):
             lang = await Chat.get_language(int(message.chat_id))
         return await message.answer(
             f"{flag(lang)} <b>{tr(lang, 'language.title')}</b>\n{tr(lang, 'language.current', name=language_name(lang))}",
-            reply_markup=language_keyboard(lang),
+            reply_markup=language_keyboard(lang, message.from_user.id),
         )
     if _command(text, "mail"):
         if message.chat_id != config.settings.owner_id:
@@ -641,7 +641,16 @@ async def on_callback(cb: Any, app, config: Config, bot: GoyBot):
         await cb.answer("This menu is available only in private chat.", alert=True)
         return
     if data.startswith("lang:set:"):
-        selected = normalize(data.rsplit(":", 1)[1])
+        parts = data.split(":")
+        if len(parts) != 4:
+            return await cb.answer("This language button is no longer valid.", alert=True)
+        selected = normalize(parts[2])
+        try:
+            owner_id = int(parts[3])
+        except ValueError:
+            return await cb.answer("This language button is no longer valid.", alert=True)
+        if owner_id != user_id:
+            return await cb.answer("Only the user who opened this menu can use it.", alert=True)
         if chat_id == user_id:
             await User.register(user_id)
             await User.set_language(user_id, selected)
@@ -653,7 +662,7 @@ async def on_callback(cb: Any, app, config: Config, bot: GoyBot):
         await cb.answer(tr(selected, "language.saved" if selected == "en" else "language.saved_ru"), alert=True)
         return await msg.edit_text(
             f"{flag(selected)} <b>{tr(selected, 'language.title')}</b>\n{tr(selected, 'language.current', name=language_name(selected))}",
-            language_keyboard(selected),
+            language_keyboard(selected, owner_id),
         )
     if data == "menu:connect":
         app.set_state(chat_id, user_id, "token_main")
