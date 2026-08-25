@@ -64,9 +64,9 @@ def install_service(init: str | None = None) -> tuple[int, str]:
     python = _service_python()
     config = root / "config.toml"
     try:
-        service_user = os.environ.get("SUDO_USER") or pwd.getpwuid(config.stat().st_uid).pw_name
+        service_user = pwd.getpwuid(config.stat().st_uid).pw_name
     except (FileNotFoundError, KeyError):
-        service_user = os.environ.get("USER") or pwd.getpwuid(os.getuid()).pw_name
+        service_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or pwd.getpwuid(os.getuid()).pw_name
     definitions: dict[str, tuple[Path, str, int]] = {
         "systemd": (Path("/etc/systemd/system/ghgoyifier.service"), f"[Unit]\nDescription=GhGoyifier Telegram GitHub gateway\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser={service_user}\nWorkingDirectory={root}\nExecStart={python} -m GhGoyifier --config {config}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\n\n[Install]\nWantedBy=multi-user.target\n", 0o644),
         "runit": (Path("/etc/service/ghgoyifier/run"), f"#!/bin/sh\nexec {python} -m GhGoyifier --config {config}\n", 0o755),
