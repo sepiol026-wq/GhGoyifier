@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/sepiol026-wq/GhGoyifier/actions"><img src="https://img.shields.io/github/actions/workflow/status/sepiol026-wq/GhGoyifier/ci.yml?style=flat-square&label=checks" alt="Checks"></a>
+  <a href="https://github.com/sepiol026-wq/GhGoyifier"><img src="https://img.shields.io/badge/status-public--release-49dcb1?style=flat-square" alt="Public release"></a>
   <a href="LICENSE-AGPLv3"><img src="https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square" alt="AGPLv3"></a>
   <a href="https://github.com/sepiol026-wq/GhGoyifier"><img src="https://img.shields.io/badge/transport-GoyGram-49dcb1?style=flat-square" alt="GoyGram"></a>
   <a href="https://github.com/sepiol026-wq/GhGoyifier"><img src="https://img.shields.io/badge/messages-Rich-6c8cff?style=flat-square" alt="Rich Messages"></a>
