@@ -323,8 +323,38 @@ def build_parser() -> argparse.ArgumentParser:
     config.add_argument("params", nargs="*", metavar="ACTION [KEY] [VALUE]")
     config.add_argument("--file", "-f", default=default_config)
     config.set_defaults(func=config_command)
-    gateway = sub.add_parser("gateway", help="manage the GhGoyifier gateway service")
-    gateway.add_argument("action", choices=["install", "start", "restart", "enable", "stop", "disable", "status", "uninstall"])
+    gateway = sub.add_parser(
+        "gateway",
+        help="manage the GhGoyifier gateway service",
+        description="Install, control, enable, inspect, or remove the GhGoyifier gateway service.",
+        epilog="""Actions:
+  install    Write or refresh the native service definition. Does not start it.
+  start      Start the service now.
+  restart    Stop and start the service now, loading the current code/config.
+  enable     Enable automatic start at system boot.
+  stop       Stop the service now without removing its definition.
+  disable    Disable automatic start at system boot.
+  status     Show whether the service is active and its process details.
+  uninstall  Stop the service and remove its native service definition.
+
+Examples:
+  ghgoyifi gateway install
+  ghgoyifi gateway enable
+  ghgoyifi gateway start
+  ghgoyifi gateway restart
+  ghgoyifi gateway status
+
+On systemd, install/enable/disable/uninstall may require sudo. The gateway
+itself runs from the configured installation directory and is restarted by
+the service manager when it exits unexpectedly.""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    gateway.add_argument(
+        "action",
+        metavar="ACTION",
+        choices=["install", "start", "restart", "enable", "stop", "disable", "status", "uninstall"],
+        help="one of: install, start, restart, enable, stop, disable, status, uninstall",
+    )
     gateway.set_defaults(func=lambda a: _gateway(a))
     logs = sub.add_parser("logs", help="inspect gateway logs")
     logs.add_argument("action", nargs="?", choices=["show", "follow", "clear"], default="show")
@@ -551,6 +581,9 @@ def _doctor(path: str = default_config, fix: bool = False, as_json: bool = False
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     raw = list(sys.argv[1:] if argv is None else argv)
+    commands = {"config", "gateway", "logs", "doctor", "status", "update", "uninstall"}
+    if len(raw) >= 2 and raw[0] in {"-h", "--help"} and raw[1] in commands:
+        raw = [raw[1], raw[0], *raw[2:]]
     if raw and raw[0] == "config":
         config_options: list[str] = []
         remaining: list[str] = [raw[0]]
