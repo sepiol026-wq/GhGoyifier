@@ -298,6 +298,16 @@ def config_command(args: argparse.Namespace) -> int:
 
 
 def logs_command(args: argparse.Namespace) -> int:
+    if detect_init() == "systemd":
+        if args.action == "follow":
+            os.execvp("journalctl", ["journalctl", "-u", "ghgoyifier", "-n", str(args.lines), "-f"])
+        if args.action == "show":
+            result = subprocess.run(["journalctl", "-u", "ghgoyifier", "--no-pager", "-n", str(args.lines)], text=True, capture_output=True)
+            if result.returncode == 0:
+                console.print(result.stdout.rstrip())
+            else:
+                console.print(result.stderr.rstrip() or "No systemd log available.")
+            return result.returncode
     path = Path(args.file)
     if args.action == "clear":
         path.unlink(missing_ok=True)
