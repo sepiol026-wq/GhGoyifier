@@ -80,4 +80,10 @@ fi
 
 say "Installed aliases: ghgoyifi, ghgoyifier, GhGoyifier"
 say "Run: $BIN_DIR/ghgoyifi gateway start"
-case ":${PATH}:" in *":$BIN_DIR:"*) ;; *) printf '\nAdd to PATH: export PATH="%s:\$PATH"\n' "$BIN_DIR" ;; esac
+case ":${PATH}:" in *":$BIN_DIR:"*) ;; *)
+  if [ "${SHELL##*/}" = "fish" ]; then
+    printf '\nAdd to PATH: fish_add_path "%s"\n' "$BIN_DIR"
+  else
+    printf '\nAdd to PATH: export PATH="%s:$PATH"\n' "$BIN_DIR"
+  fi
+  ;; esac
