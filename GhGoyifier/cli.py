@@ -317,7 +317,7 @@ def logs_command(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="GhGoyifier", description="GhGoyifier Telegram/GitHub gateway")
-    parser.add_argument("--version", action="version", version=f"GhGoyifier {_version()}")
+    parser.add_argument("--version", "-v", action="version", version=f"GhGoyifier {_version()}")
     sub = parser.add_subparsers(dest="command")
     config = sub.add_parser("config", help="configure and edit TOML settings")
     config.add_argument("params", nargs="*", metavar="ACTION [KEY] [VALUE]")
