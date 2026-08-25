@@ -55,7 +55,10 @@ cat > "$BIN_DIR/ghgoyifi" <<EOF
 set -euo pipefail
 cd "$INSTALL_DIR"
 case "\${1:-}" in
-  ""|config|gateway|logs|doctor|status|update|uninstall|-h|--help|--version)
+  "")
+    exec "$INSTALL_DIR/.venv/bin/python" -m GhGoyifier --help
+    ;;
+  config|gateway|logs|doctor|status|update|uninstall|-h|--help|--version)
     exec "$INSTALL_DIR/.venv/bin/python" -m GhGoyifier "\$@"
     ;;
   *)

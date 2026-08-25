@@ -60,7 +60,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        if sys.argv[1:] and sys.argv[1] in {"config", "gateway", "logs", "doctor", "status", "update", "uninstall", "--help", "-h", "--version"}:
+        if not sys.argv[1:] or sys.argv[1] in {"config", "gateway", "logs", "doctor", "status", "update", "uninstall", "--help", "-h", "--version"}:
             from GhGoyifier.cli import main as cli_main
             raise SystemExit(cli_main())
         asyncio.run(main())
