@@ -177,7 +177,7 @@ The gateway detects the host init environment. Native service definitions are us
 3. Use `Repos` to browse accessible accounts and repositories.
 4. Add the bot to a group as an administrator.
 5. Integrate a repository from the repository browser or use `/integrate owner/repository` as a group administrator.
-6. Use `/integrations` and `/events` in the group to manage the integration and event selection. In private chat, `/events` opens your connected chats first.
+6. Use `/integrations`, `/events`, and `/setlang` in the group to manage integrations, event selection, and the chat language. In private chat, `/events` opens your connected chats first and `/setlang` changes only your own interface language.
 7. Use `/set_topic` inside a forum topic when delivery should target that topic.
 
 Only the author of a management command who is currently an administrator can perform group-management operations. A user who is not an administrator receives no management menu and cannot perform the operation through a stale or copied button.
