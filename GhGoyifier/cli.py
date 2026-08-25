@@ -87,6 +87,12 @@ def update_command(args: argparse.Namespace) -> int:
         detail = (install.stderr or checks.stderr).strip()
         console.print(f"[red]Update validation failed; rolled back.[/red] {detail}")
         return 1
+    service_code, service_message = run("install")
+    if service_code:
+        _git(root, "reset", "--hard", local_sha)
+        run("restart")
+        console.print(f"[red]Gateway service installation failed; rolled back.[/red] {service_message}")
+        return 1
     code, message = run("restart")
     if code:
         _git(root, "reset", "--hard", local_sha)
