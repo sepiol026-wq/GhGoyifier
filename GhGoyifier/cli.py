@@ -22,12 +22,12 @@ import toml
 import aiohttp
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Confirm
 from rich.table import Table
 
 from GhGoyifier.config import Config, parse_config
 from GhGoyifier.gateway import detect_init, logfile, run
-from GhGoyifier.proxy import _masked_url, _profiles, validate_url
+from GhGoyifier.proxy import _masked_url, validate_url
 
 console = Console()
 default_config = os.environ.get("GHGOYIFIER_CONFIG", "config.toml")
