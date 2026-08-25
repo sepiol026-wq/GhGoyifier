@@ -100,7 +100,7 @@ class Chat(models.Chat):
                 chat=chat,
                 user=user,
                 repository_name=repository_name,
-                integration_token=existing.integration_token,
+                integration_token=encrypt(existing.integration_token),
                 integration_token_hash=existing.integration_token_hash or digest(existing.integration_token),
             )
             return integration, True
@@ -110,7 +110,7 @@ class Chat(models.Chat):
             chat=chat,
             user=user,
             repository_name=repository_name,
-            integration_token=integration_token,
+            integration_token=encrypt(integration_token),
         )
         return integration, False
 
@@ -187,7 +187,7 @@ class Integration(models.Integration):
             repository_name=repository_name,
             chat=chat,
             user=user,
-            integration_token=integration_token,
+            integration_token=encrypt(integration_token),
             integration_token_hash=digest(integration_token),
         )
 
@@ -288,17 +288,11 @@ async def migrate_secrets() -> None:
     for user in await User.all():
         raw = object.__getattribute__(user, "token")
         if raw and not is_encrypted(raw):
-            user.token = raw
-            await user.save(update_fields=["token"])
+            await User.filter(id=user.id).update(token=encrypt(raw))
     for integration in await Integration.all():
         raw = object.__getattribute__(integration, "integration_token")
-        plain = integration.integration_token
-        changed = False
+        plain = decrypt(raw)
         if raw and not is_encrypted(raw):
-            integration.integration_token = raw
-            changed = True
+            await Integration.filter(id=integration.id).update(integration_token=encrypt(raw))
         if plain and integration.integration_token_hash != digest(plain):
-            integration.integration_token_hash = digest(plain)
-            changed = True
-        if changed:
-            await integration.save(update_fields=["integration_token", "integration_token_hash"])
+            await Integration.filter(id=integration.id).update(integration_token_hash=digest(plain))
