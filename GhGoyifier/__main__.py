@@ -55,6 +55,18 @@ def _read_proxy_environment() -> dict[str, str]:
                     values[match.group(1)] = match.group(2)
     except (OSError, subprocess.SubprocessError):
         pass
+    try:
+        mode = subprocess.run(["gsettings", "get", "org.gnome.system.proxy", "mode"], text=True, capture_output=True, timeout=2, check=False)
+        if mode.returncode == 0 and mode.stdout.strip().strip("'") == "manual":
+            for scheme in ("http", "https"):
+                host = subprocess.run(["gsettings", "get", f"org.gnome.system.proxy.{scheme}", "host"], text=True, capture_output=True, timeout=2, check=False)
+                port = subprocess.run(["gsettings", "get", f"org.gnome.system.proxy.{scheme}", "port"], text=True, capture_output=True, timeout=2, check=False)
+                proxy_host = host.stdout.strip().strip("'")
+                proxy_port = port.stdout.strip().split()[-1] if port.stdout.strip() else ""
+                if host.returncode == 0 and port.returncode == 0 and proxy_host and proxy_host != "''" and proxy_port.isdigit() and proxy_port != "0":
+                    values[f"{scheme.upper()}_PROXY"] = f"http://{proxy_host}:{proxy_port}"
+    except (OSError, subprocess.SubprocessError):
+        pass
     return values
 
 
