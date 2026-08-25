@@ -166,6 +166,8 @@ ghgoyifi logs follow
 ghgoyifi logs clear
 ghgoyifi doctor
 ghgoyifi doctor --fix
+ghgoyifi doctor --json
+ghgoyifi doctor --strict
 ghgoyifi --version
 ```
 
@@ -174,9 +176,9 @@ ghgoyifi --version
 The Telegram interface supports English, Russian, Ukrainian, Kazakh, and German. Use `/setlang` in private chat to change your own language, or in a group as an administrator to change the language for that group.
 
 
-The gateway detects the host init environment. Native service definitions are used where that init system has a stable service interface. On init environments without a portable service contract, GhGoyifier uses a direct supervised fallback for start, stop, restart, and status; enable/disable is reported as not applicable rather than being falsely claimed as native support.
+`doctor` is a read-only production diagnostic. It validates Python, the isolated environment, TOML/schema, permissions, symlink safety, SQLite integrity and required tables/columns, dependencies, bytecode compilation, Git cleanliness and update availability, disk capacity, Telegram Bot API credentials, init service definition, process liveness, and gateway status. `doctor --fix` repairs only safe prerequisites and then reports every unresolved check. `doctor --json` is suitable for monitoring, while `doctor --strict` returns failure for warnings as well.
 
-`doctor` is read-only and checks Python, the isolated environment, configuration parsing and permissions, database path safety, dependencies, compilation, and gateway status. `doctor --fix` repairs only safe local prerequisites: it creates a missing virtual environment, installs missing dependencies, restores secure config/database permissions, compiles the package, and installs the detected gateway service definition. It never prints or replaces secrets and does not start the gateway implicitly.
+The gateway detects the host init environment. Native service definitions are used where that init system has a stable service interface. On init environments without a portable service contract, GhGoyifier uses a direct supervised fallback for start, stop, restart, and status; enable/disable is reported as not applicable rather than being falsely claimed as native support.
 
 ## Telegram workflow
 

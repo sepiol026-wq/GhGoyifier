@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sqlite3
 import shutil
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -257,8 +259,10 @@ def build_parser() -> argparse.ArgumentParser:
     logs.set_defaults(func=logs_command)
     doctor = sub.add_parser("doctor", help="show runtime and init diagnostics")
     doctor.add_argument("--fix", action="store_true", help="repair safe local prerequisites")
+    doctor.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    doctor.add_argument("--strict", action="store_true", help="treat warnings as failures")
     doctor.add_argument("--file", "-f", default=default_config)
-    doctor.set_defaults(func=lambda a: _doctor(a.file, a.fix))
+    doctor.set_defaults(func=lambda a: _doctor(a.file, a.fix, a.json, a.strict))
     status = sub.add_parser("status", help="show gateway status")
     status.set_defaults(func=lambda a: _gateway(argparse.Namespace(action="status")))
     update = sub.add_parser("update", help="check, install, and restart available updates")
@@ -272,7 +276,7 @@ def _gateway(args: argparse.Namespace) -> int:
     return code
 
 
-def _doctor(path: str = default_config, fix: bool = False) -> int:
+def _doctor(path: str = default_config, fix: bool = False, as_json: bool = False, strict: bool = False) -> int:
     root = Path(__file__).resolve().parent.parent
     config_path = Path(path).expanduser()
     if not config_path.is_absolute():
@@ -347,6 +351,73 @@ def _doctor(path: str = default_config, fix: bool = False) -> int:
     add("compile", "GhGoyifier", "ok" if compile_check.returncode == 0 else "fail", "bytecode compilation")
     git_status = _git(root, "status", "--porcelain").stdout.strip()
     add("git.tree", "tracked worktree", "ok" if not git_status else "warn", "clean" if not git_status else "local changes present")
+    requirements = root / "requirements.txt"
+    add("requirements", str(requirements), "ok" if requirements.is_file() else "fail", "present" if requirements.is_file() else "file missing")
+    try:
+        free_bytes = shutil.disk_usage(root).free
+        free_gb = free_bytes / 1024**3
+        add("disk.free", str(root), "ok" if free_gb >= 0.5 else "warn", f"{free_gb:.2f} GiB available")
+    except OSError as exc:
+        add("disk.free", str(root), "warn", type(exc).__name__)
+    if valid:
+        try:
+            raw_config = toml.load(config_path)
+            token = str(raw_config.get("bot", {}).get("token") or "")
+            bot_base = str(raw_config.get("api", {}).get("bot_api_url") or "https://api.telegram.org").rstrip("/")
+            if token:
+                request = urllib.request.Request(f"{bot_base}/bot{token}/getMe", headers={"User-Agent": "GhGoyifier-doctor"})
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    payload = json.loads(response.read().decode())
+                api_ok = bool(payload.get("ok"))
+                identity = (payload.get("result") or {}).get("username", "bot identity available")
+                add("telegram.api", bot_base, "ok" if api_ok else "fail", str(identity))
+            else:
+                add("telegram.api", bot_base, "warn", "token not configured")
+        except Exception as exc:
+            add("telegram.api", "Bot API", "fail", type(exc).__name__)
+    if db_path.exists() and db_path.suffix in {".sqlite", ".sqlite3", ".db"}:
+        try:
+            with sqlite3.connect(db_path) as connection:
+                tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                required = {"user", "chat", "eventsetting", "integration"}
+                missing_tables = required - tables
+                missing_columns = {}
+                for table, column in (("user", "language"), ("chat", "language")):
+                    columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+                    if column not in columns:
+                        missing_columns[table] = column
+            detail = "schema complete" if not missing_tables and not missing_columns else f"missing tables={sorted(missing_tables)} columns={missing_columns}"
+            add("database.schema", str(db_path), "ok" if not missing_tables and not missing_columns else "fail", detail)
+        except sqlite3.Error as exc:
+            add("database.schema", str(db_path), "fail", type(exc).__name__)
+    remote = "origin"
+    origin_url = _git(root, "remote", "get-url", "origin").stdout.strip()
+    if "GhGoyifier" not in origin_url:
+        candidate = _git(root, "remote", "get-url", "ghgoyifier")
+        if candidate.returncode == 0:
+            remote = "ghgoyifier"
+    fetched = _git(root, "fetch", "--dry-run", remote, "main")
+    remote_ref = _git(root, "rev-parse", f"{remote}/main")
+    if fetched.returncode == 0 and remote_ref.returncode == 0:
+        local_ref = _git(root, "rev-parse", "HEAD").stdout.strip()
+        remote_sha = remote_ref.stdout.strip()
+        if local_ref == remote_sha:
+            add("git.update", f"{remote}/main", "ok", "already up to date")
+        else:
+            counts = _git(root, "rev-list", "--left-right", "--count", f"HEAD...{remote}/main").stdout.strip().split()
+            add("git.update", f"{remote}/main", "warn", f"update available ahead={counts[1] if len(counts) == 2 else '?'}")
+    else:
+        add("git.update", remote, "warn", "remote main unavailable")
+    service_paths = {"systemd": Path("/etc/systemd/system/ghgoyifier.service"), "openrc": Path("/etc/init.d/ghgoyifier"), "sysvinit": Path("/etc/init.d/ghgoyifier")}
+    if init := detect_init():
+        if init in service_paths:
+            service_path = service_paths[init]
+            add("gateway.definition", str(service_path), "ok" if service_path.exists() else "warn", "service definition present" if service_path.exists() else "not installed")
+    try:
+        live = subprocess.run(["pgrep", "-f", "python.*-m GhGoyifier"], text=True, capture_output=True)
+        add("gateway.process", "GhGoyifier", "ok" if live.returncode == 0 else "warn", "process running" if live.returncode == 0 else "process not found")
+    except FileNotFoundError:
+        add("gateway.process", "GhGoyifier", "warn", "pgrep unavailable")
     init = detect_init()
     if fix:
         service_code, service_message = run("install")
@@ -354,6 +425,8 @@ def _doctor(path: str = default_config, fix: bool = False) -> int:
     else:
         status_code, status_message = run("status")
         add("gateway.status", init, "ok" if status_code == 0 else "warn", status_message)
+    if as_json:
+        print(json.dumps([{"check": check, "target": target, "status": status, "details": detail} for check, target, status, detail in rows], ensure_ascii=False))
     table = Table(title=f"GhGoyifier doctor{' --fix' if fix else ''}")
     table.add_column("Check")
     table.add_column("Target")
@@ -362,11 +435,13 @@ def _doctor(path: str = default_config, fix: bool = False) -> int:
     for check, target, status, detail in rows:
         color = "green" if status == "ok" else "yellow" if status == "warn" else "red"
         table.add_row(check, target, f"[{color}]{status.upper()}[/{color}]", detail)
-    console.print(table)
+    if not as_json:
+        console.print(table)
     failed = [check for check, _, status, _ in rows if status == "fail"]
-    if failed:
+    if failed and not as_json:
         console.print(f"[red]Unresolved checks:[/red] {', '.join(failed)}")
-    return 1 if failed else 0
+    warnings = [check for check, _, status, _ in rows if status == "warn"]
+    return 1 if failed or (strict and warnings) else 0
 
 
 def main(argv: list[str] | None = None) -> int:
