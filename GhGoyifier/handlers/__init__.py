@@ -83,8 +83,8 @@ help = (
 )
 pat_guide = (
     "<details><summary>Required GitHub permissions</summary>\n"
-    "<p><b>Classic PAT:</b> open GitHub token settings and enable <code>repo</code> for private repositories (public repositories can use <code>public_repo</code>).</p>\n"
-    "<p><b>Fine-grained PAT:</b> open GitHub token settings, select the repository, then grant <code>Contents: Read-only</code> and <code>Metadata: Read-only</code>.</p>\n"
+    "<p><b>Classic PAT:</b> open GitHub token settings and enable <code>repo</code> for private repositories (public repositories can use <code>public_repo</code>). Also enable the <code>notifications</code> scope; it is required for GitHub Notifications.</p>\n"
+    "<p><b>Fine-grained PAT:</b> open GitHub token settings, select the repository, then grant <code>Contents: Read-only</code>, <code>Metadata: Read-only</code>, and <code>Notifications: Read-only</code>.</p>\n"
     "<p>After changing permissions, send the new token again with <code>/token</code>. Send it only in private chat.</p>\n"
     "</details>"
 )
