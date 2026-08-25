@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import getpass
 import json
 import os
@@ -15,8 +16,10 @@ from datetime import datetime, timezone
 import urllib.request
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import toml
+import aiohttp
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
@@ -24,6 +27,7 @@ from rich.table import Table
 
 from GhGoyifier.config import Config, parse_config
 from GhGoyifier.gateway import detect_init, logfile, run
+from GhGoyifier.proxy import _masked_url, _profiles, validate_url
 
 console = Console()
 default_config = os.environ.get("GHGOYIFIER_CONFIG", "config.toml")
@@ -188,6 +192,117 @@ def _write(path: str, data: dict[str, Any]) -> None:
     target.chmod(0o600)
 
 
+def _proxy_config_path(path: str, root: Path) -> Path:
+    target = Path(path).expanduser()
+    return target if target.is_absolute() else root / target
+
+
+def _proxy_save(path: Path, data: dict[str, Any]) -> None:
+    _write(str(path), data)
+
+
+async def _test_proxy_url(url: str) -> tuple[bool, str]:
+    parsed = urlsplit(url)
+    try:
+        if parsed.scheme.lower().startswith("socks"):
+            from aiohttp_socks import ProxyConnector
+            connector = ProxyConnector.from_url(url)
+            async with aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=8), trust_env=False) as session:
+                async with session.get("https://api.telegram.org") as response:
+                    return True, f"HTTP {response.status}"
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8), trust_env=False) as session:
+            async with session.get("https://api.telegram.org", proxy=url) as response:
+                return True, f"HTTP {response.status}"
+    except Exception as exc:
+        return False, type(exc).__name__
+
+
+def proxy_command(args: argparse.Namespace) -> int:
+    root = Path(__file__).resolve().parent.parent
+    path = _proxy_config_path(args.file, root)
+    data = toml.load(path) if path.exists() else {}
+    section = data.setdefault("proxy", {})
+    profiles = section.setdefault("profiles", [])
+    action = args.params[0] if args.params else "list"
+    if action == "list":
+        table = Table(title="GhGoyifier proxy profiles")
+        for column in ("Name", "Scheme", "Priority", "State", "Active", "URL"):
+            table.add_column(column)
+        active = str(section.get("active") or "")
+        for item in sorted(profiles, key=lambda value: (int(value.get("priority", 100)), str(value.get("name", "")))):
+            url = str(item.get("url", ""))
+            table.add_row(str(item.get("name", "")), urlsplit(url).scheme, str(item.get("priority", 100)), "on" if item.get("enabled", True) else "off", "yes" if item.get("name") == active else "", _masked_url(url))
+        console.print(table)
+        console.print(f"auto={'on' if section.get('auto', True) else 'off'} active={active or 'system'} fallback_count={len(profiles)}")
+        return 0
+    if action == "add":
+        if len(args.params) != 3:
+            console.print("[red]Usage:[/red] proxy add NAME URL")
+            return 2
+        name = args.params[1]
+        try:
+            url = validate_url(args.params[2])
+        except ValueError as exc:
+            console.print(f"[red]Invalid proxy URL:[/red] {exc}")
+            return 2
+        profiles[:] = [item for item in profiles if item.get("name") != name]
+        profiles.append({"name": name, "url": url, "enabled": True, "priority": args.priority})
+        _proxy_save(path, data)
+        console.print(f"[green]Added proxy profile:[/green] {name}")
+        return 0
+    if action in {"remove", "use", "enable", "disable"}:
+        if len(args.params) != 2:
+            console.print(f"[red]Usage:[/red] proxy {action} NAME")
+            return 2
+        name = args.params[1]
+        item = next((value for value in profiles if value.get("name") == name), None)
+        if item is None:
+            console.print(f"[red]Proxy profile not found:[/red] {name}")
+            return 1
+        if action == "remove":
+            profiles.remove(item)
+            if section.get("active") == name:
+                section["active"] = ""
+        elif action == "use":
+            section["active"] = name
+            section["auto"] = True
+        else:
+            item["enabled"] = action == "enable"
+        _proxy_save(path, data)
+        console.print(f"[green]Proxy profile updated:[/green] {name}")
+        return 0
+    if action == "clear":
+        profiles.clear()
+        section["active"] = ""
+        _proxy_save(path, data)
+        console.print("[green]Proxy profiles cleared.[/green]")
+        return 0
+    if action == "auto":
+        if len(args.params) != 2 or args.params[1] not in {"on", "off"}:
+            console.print("[red]Usage:[/red] proxy auto on|off")
+            return 2
+        section["auto"] = args.params[1] == "on"
+        _proxy_save(path, data)
+        console.print(f"[green]Automatic system proxy:[/green] {args.params[1]}")
+        return 0
+    if action == "test":
+        names = [args.params[1]] if len(args.params) > 1 else [item.get("name") for item in profiles if item.get("enabled", True)]
+        if args.all:
+            names = [item.get("name") for item in profiles]
+        selected = [item for item in profiles if item.get("name") in names]
+        if not selected:
+            console.print("[yellow]No proxy profiles selected.[/yellow]")
+            return 1
+        failures = 0
+        for item in selected:
+            ok, detail = asyncio.run(_test_proxy_url(str(item["url"])))
+            console.print(f"{'[green]OK[/green]' if ok else '[red]FAIL[/red]'} {item['name']}: {_masked_url(str(item['url']))} ({detail})")
+            failures += not ok
+        return int(bool(failures))
+    console.print(f"[red]Unknown proxy action:[/red] {action}")
+    return 2
+
+
 def configure(path: str) -> int:
     target = Path(path).expanduser()
     data = toml.load(target) if target.exists() else {}
@@ -197,6 +312,7 @@ def configure(path: str) -> int:
         "settings": {"throttling_rate": 0.5, "drop_pending_updates": True, "buttons": "inline"},
         "api": {"id": 2040, "hash": "b18441a1ff607e10a989891a5462e627", "bot_api_url": "https://api.telegram.org", "host": "localhost:4454"},
         "notifications": {"mode": "polling", "poll_interval": 30, "none_auth_perm": False},
+        "proxy": {"auto": True, "active": "", "profiles": []},
         "github_app": {"app_id": 0, "slug": "", "private_key_path": "", "webhook_secret": ""},
     }
     for section, values in defaults.items():
@@ -378,6 +494,41 @@ the service manager when it exits unexpectedly.""",
     logs.add_argument("--lines", type=int, default=100)
     logs.add_argument("--file", default=str(logfile))
     logs.set_defaults(func=logs_command)
+    proxy = sub.add_parser(
+        "proxy",
+        help="manage automatic proxy profiles and fallbacks",
+        description="Manage HTTP, HTTPS, SOCKS4, and SOCKS5 proxy profiles used by Telegram.",
+        epilog="""Actions:
+  list                         Show profiles and the active fallback order.
+  add NAME URL [--priority N]  Add or replace a profile.
+  remove NAME                  Remove a profile.
+  use NAME                     Put a profile first in the fallback chain.
+  enable NAME                  Enable a profile.
+  disable NAME                 Disable a profile without deleting it.
+  clear                        Remove all saved profiles.
+  auto on|off                  Enable or disable system proxy autodetection.
+  test [NAME]                  Test one profile or every enabled profile.
+  test --all                   Test disabled profiles too.
+
+URL schemes: http://, https://, socks4://, socks4a://, socks5://, socks5h://
+Profiles are tried by priority after the selected profile. If a Telegram
+request times out, the next enabled profile is selected automatically.
+When no profile is selected and auto is on, the system proxy is used.
+
+Examples:
+  ghgoyifi proxy list
+  ghgoyifi proxy add office-http http://127.0.0.1:8080 --priority 10
+  ghgoyifi proxy add backup-socks socks5h://127.0.0.1:1080 --priority 20
+  ghgoyifi proxy use office-http
+  ghgoyifi proxy test --all
+  ghgoyifi proxy auto on""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    proxy.add_argument("params", nargs="*", metavar="ACTION [ARGS]")
+    proxy.add_argument("--priority", type=int, default=100, help="fallback priority; lower values are tried first")
+    proxy.add_argument("--all", action="store_true", help="with test, include disabled profiles")
+    proxy.add_argument("--file", "-f", default=default_config, help="configuration file")
+    proxy.set_defaults(func=proxy_command)
     doctor = sub.add_parser("doctor", help="show runtime and init diagnostics")
     doctor.add_argument("--fix", action="store_true", help="repair safe local prerequisites")
     doctor.add_argument("--json", action="store_true", help="print machine-readable JSON")
@@ -676,7 +827,7 @@ def _doctor(path: str = default_config, fix: bool = False, as_json: bool = False
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     raw = list(sys.argv[1:] if argv is None else argv)
-    commands = {"config", "gateway", "logs", "doctor", "status", "update", "uninstall"}
+    commands = {"config", "gateway", "logs", "doctor", "proxy", "status", "update", "uninstall"}
     if len(raw) >= 2 and raw[0] in {"-h", "--help"} and raw[1] in commands:
         raw = [raw[1], raw[0], *raw[2:]]
     if raw and raw[0] == "config":

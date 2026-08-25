@@ -1,10 +1,12 @@
 # CopyLeft 2026 github.com/sepiol026-wq | telegram:@samsepi0l_ovf. Licensed under AGPLv3.
 from __future__ import annotations
 
+import asyncio
 import re
 from types import SimpleNamespace
 from typing import Any
 
+import aiohttp
 from goygram import GoyGram
 from goygram.types.kbd import KbdBuilder
 
@@ -25,12 +27,17 @@ class GoyBot:
             raise ValueError("buttons_mode must be 'inline' or 'in-msg'")
         self.buttons_mode = buttons_mode
         self.outbound_guard = OutboundGuard()
+        self.proxy_manager: Any = None
 
     async def request(self, method: str, **data: Any) -> Any:
         if not self.outbound_guard.allow(method, data.get("chat_id")):
             raise SilentDrop
         try:
             return await self.app.bot_req(method, **data)
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            if self.proxy_manager is not None:
+                await self.proxy_manager.failover()
+            raise
         except RuntimeError as exc:
             match = re.search(r"retry after (\d+)", str(exc), re.IGNORECASE)
             if "http 429" in str(exc) and match:

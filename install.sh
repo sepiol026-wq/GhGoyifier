@@ -67,7 +67,7 @@ case "\${1:-}" in
   "")
     exec "$INSTALL_DIR/.venv/bin/python" -m GhGoyifier --help
     ;;
-  config|gateway|logs|doctor|status|update|uninstall|-h|--help|-v|--version)
+  config|gateway|logs|doctor|proxy|status|update|uninstall|-h|--help|-v|--version)
     exec "$INSTALL_DIR/.venv/bin/python" -m GhGoyifier "\$@"
     ;;
   *)
