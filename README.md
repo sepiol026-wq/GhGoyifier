@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/sepiol026-wq/GhGoyifier"><img src="https://img.shields.io/badge/status-public--release-49dcb1?style=flat-square" alt="Public release"></a>
-  <a href="LICENSE-AGPLv3"><img src="https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square" alt="AGPLv3"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square" alt="AGPLv3"></a>
   <a href="https://github.com/sepiol026-wq/GhGoyifier"><img src="https://img.shields.io/badge/transport-GoyGram-49dcb1?style=flat-square" alt="GoyGram"></a>
   <a href="https://github.com/sepiol026-wq/GhGoyifier"><img src="https://img.shields.io/badge/messages-Rich-6c8cff?style=flat-square" alt="Rich Messages"></a>
 </p>
@@ -215,10 +215,10 @@ git diff --check
 PYTHONPATH=. .venv/bin/python -m GhGoyifier --help
 ```
 
-The project intentionally keeps the original upstream MIT attribution for inherited portions in `LICENSE`. New and modified GhGoyifier work is licensed under the GNU Affero General Public License v3.0 in `LICENSE-AGPLv3`.
+GhGoyifier is licensed under the GNU Affero General Public License v3.0 in `LICENSE`.
 
 ## License
 
-GhGoyifier changes are released under the [GNU Affero General Public License v3.0](LICENSE-AGPLv3).
+GhGoyifier is released under the [GNU Affero General Public License v3.0](LICENSE).
 
-The original upstream portions from `vsecoder/github-notifi-bot` retain their original MIT attribution and license in [LICENSE](LICENSE).
+Upstream-derived source files retain their attribution headers.
