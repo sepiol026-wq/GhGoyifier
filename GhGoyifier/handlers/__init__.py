@@ -496,7 +496,7 @@ async def on_message(msg: Any, app, config: Config, bot: GoyBot):
             return await message.answer(
                 "This command works only in a group or channel."
             )
-        if not await is_user_admin(bot, int(message.chat_id), message.from_user.id):
+        if not await is_user_admin(bot, int(message.chat_id or 0), message.from_user.id):
             return await message.answer("Only chat administrators can use this command.")
         await Chat.ensure_registered(message.chat_id)
         items = await Chat.get_integrations(message.chat_id)
@@ -505,8 +505,10 @@ async def on_message(msg: Any, app, config: Config, bot: GoyBot):
             reply_markup=build_integrations_keyboard(items) if items else inline_keyboard([[('✕ Close', 'callback_data', 'nav:close')]]),
         )
     if _command(text, "events"):
-        if _is_dm(message) or not await is_user_admin(
-            bot, message.chat_id, message.from_user.id
+        if _is_dm(message):
+            return await _show_my_chats(message, app)
+        if not await is_user_admin(
+            bot, int(message.chat_id or 0), message.from_user.id
         ):
             return await message.answer(
                 "Only administrators can change event settings."
