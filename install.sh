@@ -125,4 +125,4 @@ if [ -n "${PRIVILEGE:-}" ] || [ "$(id -u)" -eq 0 ]; then
 else
   say "sudo is unavailable; user-local aliases remain in $BIN_DIR"
 fi
-say "Run: $COMMAND_BIN gateway start"
+say "Run ghgoyifi gateway start"

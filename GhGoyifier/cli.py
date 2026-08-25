@@ -5,6 +5,7 @@ import argparse
 import getpass
 import json
 import os
+import pwd
 import sqlite3
 import shutil
 import subprocess
@@ -542,11 +543,87 @@ def _doctor(path: str = default_config, fix: bool = False, as_json: bool = False
             add("git.update", f"{remote}/main", "warn", f"update available ahead={counts[1] if len(counts) == 2 else '?'}")
     else:
         add("git.update", remote, "warn", "remote main unavailable")
+    init = detect_init()
+    owner_name = None
+    owner_home = None
+    for candidate in (config_path, db_path):
+        if candidate.exists():
+            try:
+                owner = pwd.getpwuid(candidate.stat().st_uid)
+                owner_name = owner.pw_name
+                owner_home = Path(owner.pw_dir)
+                break
+            except (KeyError, OSError):
+                pass
+    if owner_name:
+        add("installation.owner", str(config_path), "ok" if owner_name != "root" else "warn", f"owner={owner_name}")
+    if init == "systemd":
+        service_path = Path("/etc/systemd/system/ghgoyifier.service")
+        add("gateway.definition", str(service_path), "ok" if service_path.exists() else "fail", "service definition present" if service_path.exists() else "not installed")
+        if service_path.exists():
+            try:
+                unit = service_path.read_text(errors="replace")
+                expected_user = owner_name or "unknown"
+                unit_user = next((line.split("=", 1)[1].strip() for line in unit.splitlines() if line.startswith("User=")), "root")
+                add("gateway.unit_user", str(service_path), "ok" if unit_user == expected_user else "fail", f"unit={unit_user} expected={expected_user}")
+                proxy_files = [line.split("=", 1)[1].strip() for line in unit.splitlines() if line.startswith("EnvironmentFile=")]
+                add("gateway.proxy_sources", str(service_path), "ok" if any("environment.d" in item for item in proxy_files) and any("/etc/environment" in item for item in proxy_files) else "warn", ", ".join(proxy_files) or "no EnvironmentFile")
+            except OSError as exc:
+                add("gateway.unit_read", str(service_path), "fail", type(exc).__name__)
+            try:
+                state = subprocess.run(["systemctl", "show", "ghgoyifier", "--no-pager", "--property=ActiveState,SubState,Result,MainPID,NRestarts,User"], text=True, capture_output=True, check=False)
+                properties = dict(line.split("=", 1) for line in state.stdout.splitlines() if "=" in line)
+                active = properties.get("ActiveState", "unknown")
+                result = properties.get("Result", "unknown")
+                status = "ok" if active == "active" and result in {"success", "exit-code"} else "fail" if active == "failed" or result not in {"success", "exit-code", "unknown"} else "warn"
+                add("gateway.state", "ghgoyifier.service", status, f"active={active} sub={properties.get('SubState', 'unknown')} result={result}")
+                restarts = int(properties.get("NRestarts", "0") or 0)
+                add("gateway.restarts", "ghgoyifier.service", "ok" if restarts < 3 else "warn" if restarts < 10 else "fail", f"count={restarts}")
+                add("gateway.runtime_user", "ghgoyifier.service", "ok" if properties.get("User") == owner_name else "fail", f"unit={properties.get('User', 'unknown')} expected={owner_name or 'unknown'}")
+            except (OSError, ValueError) as exc:
+                add("gateway.state", "ghgoyifier.service", "fail", type(exc).__name__)
+    if owner_home:
+        proxy_dir = owner_home / ".config" / "environment.d"
+        proxy_file = proxy_dir / "90-goyifier-proxy.conf"
+        if proxy_file.exists():
+            mode = proxy_file.stat().st_mode & 0o777
+            names = []
+            for line in proxy_file.read_text(errors="replace").splitlines():
+                if "=" in line:
+                    names.append(line.split("=", 1)[0].strip())
+            add("proxy.file", str(proxy_file), "ok" if mode == 0o600 else "warn", f"permissions={oct(mode)} variables={','.join(names) or 'none'}")
+        else:
+            add("proxy.file", str(proxy_file), "warn", "not found; relying on /etc/environment or live user environment")
+    for command in ("ghgoyifi", "ghgoyifier", "GhGoyifier"):
+        target = Path("/usr/local/bin") / command
+        add("global.command", str(target), "ok" if target.exists() and os.access(target, os.X_OK) else "warn", "executable" if target.exists() else "missing")
+    if db_path.exists() and db_path.suffix in {".sqlite", ".sqlite3", ".db"}:
+        try:
+            with sqlite3.connect(db_path) as connection:
+                counts = {table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("user", "chat", "integration", "eventsetting") if table in {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}}
+                add("database.records", str(db_path), "ok" if counts.get("integration", 0) else "warn", ", ".join(f"{key}={value}" for key, value in counts.items()))
+                integrations = connection.execute("SELECT chat_id, repository_name FROM integration ORDER BY chat_id, repository_name").fetchall()
+                add("database.integrations", str(db_path), "ok" if integrations else "warn", f"count={len(integrations)}")
+                for chat_id, repository_name in integrations:
+                    settings = connection.execute("SELECT COUNT(*) FROM eventsetting WHERE chat_id = ?", (chat_id,)).fetchone()[0]
+                    add("database.integration", f"{chat_id}/{repository_name}", "ok" if settings >= 19 else "warn", f"event_settings={settings}/19")
+        except sqlite3.Error as exc:
+            add("database.records", str(db_path), "fail", type(exc).__name__)
+    if init == "systemd":
+        try:
+            journal = subprocess.run(["journalctl", "-u", "ghgoyifier", "--no-pager", "-n", "200"], text=True, capture_output=True, check=False)
+            recent = journal.stdout.splitlines()
+            errors = sum("Traceback" in line or "ERROR" in line or "FAILURE" in line for line in recent)
+            timeouts = sum("TimeoutError" in line or "timed out" in line.lower() for line in recent)
+            add("gateway.journal", "ghgoyifier", "fail" if errors >= 3 else "warn" if errors else "ok", f"errors={errors} timeouts={timeouts}")
+        except OSError as exc:
+            add("gateway.journal", "ghgoyifier", "warn", type(exc).__name__)
     service_paths = {"systemd": Path("/etc/systemd/system/ghgoyifier.service"), "openrc": Path("/etc/init.d/ghgoyifier"), "sysvinit": Path("/etc/init.d/ghgoyifier")}
-    if init := detect_init():
+    if init:
         if init in service_paths:
             service_path = service_paths[init]
-            add("gateway.definition", str(service_path), "ok" if service_path.exists() else "warn", "service definition present" if service_path.exists() else "not installed")
+            if init != "systemd":
+                add("gateway.definition", str(service_path), "ok" if service_path.exists() else "warn", "service definition present" if service_path.exists() else "not installed")
     try:
         process_list = subprocess.run(["ps", "-eo", "pid=,comm=,args="], text=True, capture_output=True, check=False)
         pids = []
@@ -559,7 +636,9 @@ def _doctor(path: str = default_config, fix: bool = False, as_json: bool = False
         add("gateway.process", "GhGoyifier", status, detail)
     except FileNotFoundError:
         add("gateway.process", "GhGoyifier", "warn", "pgrep unavailable")
-    if logfile.exists():
+    if init == "systemd":
+        add("gateway.logs", "journalctl -u ghgoyifier", "ok", "systemd journal is active log backend")
+    elif logfile.exists():
         try:
             recent = logfile.read_text(errors="replace").splitlines()[-200:]
             errors = sum("ERROR" in line or "Traceback" in line for line in recent)
