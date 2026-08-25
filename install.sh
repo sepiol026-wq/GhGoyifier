@@ -21,14 +21,12 @@ PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || true)}"
 say "Installing GhGoyifier from ${REPO_URL}"
 mkdir -p "$(dirname "$INSTALL_DIR")" "$BIN_DIR"
 if [ -d "$INSTALL_DIR/.git" ]; then
-  if [ ! -w "$INSTALL_DIR/.git" ] || [ ! -w "$INSTALL_DIR/.git/objects" ] || [ ! -w "$INSTALL_DIR/.git/refs" ] || [ ! -w "$INSTALL_DIR/.git/logs" ]; then
-    if [ "$(id -u)" -eq 0 ]; then
-      chown -R "$(id -u):$(id -g)" "$INSTALL_DIR"
-    elif command -v sudo >/dev/null; then
-      sudo chown -R "$(id -u):$(id -g)" "$INSTALL_DIR"
-    else
-      fail "Installation directory is not writable and sudo is unavailable: $INSTALL_DIR"
-    fi
+  if [ "$(id -u)" -eq 0 ]; then
+    chown -R "$(id -u):$(id -g)" "$INSTALL_DIR"
+  elif command -v sudo >/dev/null; then
+    sudo chown -R "$(id -u):$(id -g)" "$INSTALL_DIR"
+  else
+    fail "Installation directory is not writable and sudo is unavailable: $INSTALL_DIR"
   fi
   git -C "$INSTALL_DIR" fetch origin "$BRANCH"
   git -C "$INSTALL_DIR" checkout "$BRANCH"
