@@ -1,15 +1,14 @@
+# CopyLeft 2026 github.com/sepiol026-wq | telegram:@samsepi0l_ovf. Licensed under AGPLv3.
 aerich
-aiogram==3.20.0
-aiogram-dialog>=2.2,<3
 aiohttp==3.11.0
 aiosqlite
 cachetools
 coloredlogs
-tgcrypto
 toml
 tortoise-orm
 PyGithub
 pyjwt[crypto]>=2.8
 fastapi
 uvicorn
-coloredlogs
+goygram>=0.7.19
+rich>=13.7

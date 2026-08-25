@@ -1,202 +1,224 @@
-# github-notifi-bot
+# GhGoyifier
 
-![Screenshot](.github/images/mockup.webp)
+<p align="center">
+  <img src="assets/ghgoyifier-banner.svg" alt="GhGoyifier: GitHub events flowing through a secure gateway into Rich Telegram cards" width="100%">
+</p>
 
-Telegram bot that delivers real-time notifications about your GitHub repositories
-(commits, pull requests, issues, releases, CI runs, stars, forks and more) to
-group chats — through GitHub webhooks. Authentication via either a GitHub App
-(recommended) or a personal access token; both modes coexist per-user and
-per-integration. Written in Python on top of aiogram 3 + aiogram-dialog,
-FastAPI and Tortoise-ORM.
+<p align="center">
+  <strong>GitHub activity, presented as clear, rich, actionable Telegram messages.</strong><br>
+  A lightweight GoyGram-based gateway for teams that want GitHub updates without a noisy notification stream.
+</p>
 
-## Screenshots
+<p align="center">
+  <a href="https://github.com/sepiol026-wq/GhGoyifier/actions"><img src="https://img.shields.io/github/actions/workflow/status/sepiol026-wq/GhGoyifier/ci.yml?style=flat-square&label=checks" alt="Checks"></a>
+  <a href="LICENSE-AGPLv3"><img src="https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square" alt="AGPLv3"></a>
+  <a href="https://github.com/sepiol026-wq/GhGoyifier"><img src="https://img.shields.io/badge/transport-GoyGram-49dcb1?style=flat-square" alt="GoyGram"></a>
+  <a href="https://github.com/sepiol026-wq/GhGoyifier"><img src="https://img.shields.io/badge/messages-Rich-6c8cff?style=flat-square" alt="Rich Messages"></a>
+</p>
 
-![Screenshot](.github/images/actions.png)
+## Install first
 
-![Screenshot](.github/images/chats.png)
+The installer creates an isolated installation, asks the operator only for meaningful settings, and detects the init system available on the host.
 
-![Screenshot](.github/images/repos.png)
+```bash
+curl -fsSL https://raw.githubusercontent.com/sepiol026-wq/GhGoyifier/main/install.sh | bash
+```
+
+The installer will:
+
+1. clone `sepiol026-wq/GhGoyifier` into a separate application directory;
+2. create a private Python virtual environment;
+3. install pinned/runtime dependencies;
+4. open a Rich setup wizard;
+5. write a validated configuration atomically with mode `0600`;
+6. install the gateway for the detected init system when possible;
+7. create the global commands `ghgoyifi`, `ghgoyifier`, and `GhGoyifier`.
+
+After installation:
+
+```bash
+ghgoyifi gateway start
+ghgoyifi gateway status
+ghgoyifi logs follow
+```
+
+The installer is interactive by design. Secrets are entered without echo. Technical values such as SQLite models, Telegram API defaults, polling mode, and internal runtime defaults are configured automatically rather than asked as meaningless questions.
+
+## Why GhGoyifier?
+
+### A calmer GitHub-to-Telegram experience
+
+GhGoyifier turns GitHub activity into structured Telegram Rich Messages. A push is not reduced to a vague `GitHub push` line: it can include the branch, commit count, commit identifiers, authors, messages, changed files, and diff statistics. Pull requests, issues, reviews, comments, releases, workflows, deployments, discussions, forks, stars, branches, tags, and repository changes receive event-specific formatting and an event-specific link.
+
+### Rich Messages instead of plain bot text
+
+Cards use Telegram Rich Message structures for headings, code, expandable sections, separators, formatted bodies, and readable multi-part layouts. The transport stays Rich in both button modes:
+
+- `inline`: native Telegram inline keyboard beside the Rich payload;
+- `in-msg`: buttons rendered inside the Rich message itself.
+
+The choice is configurable. `inline` is the default because it is familiar to Telegram users; `in-msg` is available for a more integrated card layout.
+
+### Direct GoyGram architecture
+
+The bot uses GoyGram directly instead of an aiogram-shaped compatibility layer. That keeps the runtime focused and avoids carrying a dialog framework, middleware stack, or unused abstraction just to deliver messages. The result is a compact, asynchronous process with low operational overhead. Actual memory and latency still depend on Python, GitHub API responses, enabled integrations, and host conditions; no synthetic benchmark is claimed here.
+
+### Production-minded safety
+
+Management operations are admin-gated at action time, not only when a menu is rendered. Callback payloads use short opaque authenticated handles. User tokens are encrypted at rest, lookup uses a digest, config writes are atomic, and outbound/inbound flood controls reduce repeated expensive work and Telegram rate-limit cascades.
+
+These controls protect the application boundary. They are not a replacement for a firewall, reverse proxy, provider protection, or network-level DDoS mitigation.
 
 ## Features
 
-- 🔔 **Real-time notifications** for 18 GitHub event types (see the table
-  below) delivered as Telegram-HTML messages.
-- 🔗 **GitHub App authentication** (recommended) — one-click install through
-  GitHub's UI, granular per-repo access, auto-rotating installation tokens
-  (~1 hour TTL), HMAC-verified App-level webhook. Coexists with PAT — users
-  can use either or both. Each `Integration` row records its `auth_source`.
-- 🔑 **Personal Access Token** path (legacy) — per-user PAT, per-repo webhook
-  via PyGithub. Still works, still supported.
-- 💬 **DM-first UX with aiogram-dialog** — persistent reply keyboard
-  (`🔌 Connect`, `🏢 Repos`, `💬 My chats`, `➕ Add to chat`, `❓ Help`) plus
-  three multi-window dialogs (token, repos browser, my-chats browser) with
-  typed Pydantic-backed dialog state.
-- 🏢 **Repos browser** — paginated list of orgs/accounts (App + PAT merged),
-  drill into repos, "Integrate to a chat…" picker that re-checks admin rights
-  and dispatches to the right code path (App vs PAT). No copy-pasting commands.
-- 💬 **My chats** — see all chats where you have integrations, manage each
-  integration (delete, view auth source) and toggle event types **without
-  leaving DM**.
-- 🧰 **Per-chat event toggles** via `/events` — enable/disable each event type
-  independently. Same UI also accessible from `/integrations` and from the
-  My-chats DM dialog.
-- 🔄 **`/reinstall`** — re-syncs the GitHub-side webhook subscription list
-  with the bot's current capabilities. Stale events are flagged in the
-  `/events` keyboard with ⚠️ and blocked from being enabled until reinstall.
-- 🧵 **Forum topic delivery** — `/set_topic` records the active forum topic
-  and notifications are routed there. Falls back to General if the topic is
-  closed; if a topic is permanently deleted, the bot auto-clears it from the
-  chat record so future events go straight to General.
-- 👥 **Admin-gated everywhere** — only chat administrators can integrate,
-  delete, set topic, change events or reinstall (re-checked at action time,
-  not just at menu render).
-- 🛡 **Structured GitHub error handling** — distinct user-friendly messages
-  for invalid/expired token, missing scopes, no admin access, repo not found,
-  hook already exists, etc. (no more raw stack traces in the chat).
-- ⚠️ **Delivery-failure DM** — when the bot can't deliver to a chat (kicked,
-  chat deleted, etc.) the integration owner gets a DM with the cause.
-  Rate-limited per `(user, chat)` to 30 minutes so a dead chat doesn't spam
-  the owner.
-- 🌟 **Star anti-flood** — per-chat configurable cooldown so a viral repo
-  doesn't spam the chat.
-- 📦 **Pluggable event architecture** — each event type lives in
-  [`app/events/`](app/events) as a single file with a Pydantic schema and a
-  formatter, and self-registers on import. Adding a new event is one new file.
-- 🔌 **Async webhook delivery** — Telegram calls go through `aiohttp`; the
-  webhook auto-retries without `message_thread_id` if the topic is gone, and
-  classifies 403 (kicked) separately in logs. Both endpoints
-  (`/webhook/{token}` for PAT, `/webhook` with HMAC for App) report
-  diagnostic JSON (`matched`/`sent`/`skipped` counts).
+<table>
+<tr><td><img src="assets/icons/rich.svg" width="28" alt="Rich"></td><td><strong>Rich event cards</strong><br>Readable headings, expandable content, code blocks, separators, detailed metadata, and one relevant URL button.</td></tr>
+<tr><td><img src="assets/icons/speed.svg" width="28" alt="Speed"></td><td><strong>Lightweight async runtime</strong><br>Direct GoyGram transport, bounded work, caching, and no unnecessary dialog framework.</td></tr>
+<tr><td><img src="assets/icons/security.svg" width="28" alt="Security"></td><td><strong>Defense in depth</strong><br>Encrypted secrets, opaque callback handles, admin re-checks, ownership checks, replay protection, and flood controls.</td></tr>
+<tr><td><img src="assets/icons/terminal.svg" width="28" alt="CLI"></td><td><strong>Operator-first CLI</strong><br>Rich configuration wizard, config dot-path editing, gateway lifecycle commands, diagnostics, and log inspection.</td></tr>
+<tr><td><img src="assets/icons/init.svg" width="28" alt="Init systems"></td><td><strong>Many init environments</strong><br>Automatic detection for systemd, dinit, runit, OpenRC, SysVinit, s6, Upstart, BusyBox init, finit, dumb-init, minit, tiny, and Epoch.</td></tr>
+</table>
 
-## Supported events
+Additional capabilities:
 
-| Event | What triggers it | Notes |
-|-------|------------------|-------|
-| `ping` | Webhook installation | Auto-fired by GitHub once on hook creation |
-| `push` | Commits pushed to a branch | Per-commit file diff stats fetched via the user's token |
-| `issues` | Issue lifecycle | Filtered to `opened`, `closed`, `reopened`, `assigned` |
-| `issue_comment` | Comments on issues *and* PRs | Filtered to `created`; PR comments are labelled accordingly |
-| `pull_request` | PR lifecycle | Filtered to `opened`, `closed`, `reopened`, `ready_for_review`; "merged" rendered with 🟣 |
-| `pull_request_review` | Review submitted on a PR | Filtered to `submitted`; icon by review state (✅/🔴/💬/⚪) |
-| `pull_request_review_comment` | Inline comment on a PR diff | Filtered to `created`; shows file path |
-| `commit_comment` | Comment on a specific commit | Filtered to `created` |
-| `star` | Repo starred / unstarred | Anti-flood applies per chat |
-| `fork` | Repo forked | Shows total forks count |
-| `create` | Branch or tag created | |
-| `delete` | Branch or tag deleted | |
-| `release` | Release created/published | Filtered to `published`; drafts skipped; prerelease label shown |
-| `workflow_run` | GitHub Actions run finished | Filtered to `completed`; icon by conclusion |
-| `discussion` | GitHub Discussions lifecycle | Filtered to `created`, `closed`, `reopened`, `answered` |
-| `discussion_comment` | Comment on a discussion | Filtered to `created` |
-| `deployment_status` | Deployment status transitions | All states; icon by state |
-| `member` | Collaborator added | Filtered to `added` |
-| `public` | Repo turned public | |
+- polling GitHub Events API with cursors, watermarks, deduplication, and backoff;
+- commit reconciliation through commit and compare APIs when a push payload is incomplete;
+- one card containing all recovered commits from a push range;
+- protection against duplicate commit titles being treated as duplicate commits;
+- per-chat event switches;
+- group/forum topic delivery with safe fallback to General;
+- GitHub App and Personal Access Token authentication paths;
+- private-chat-first repository browser and My chats management;
+- admin re-checks for integration, deletion, event changes, topic changes, and reinstall actions;
+- structured handling for GitHub repository, permission, token, rate-limit, and delivery errors;
+- bounded Telegram message splitting;
+- optional delivery-failure reporting to the integration owner;
+- extensible event registry: schemas and formatters are separated by event type.
+
+## Supported event types
+
+| Event | Delivered when | Card contains |
+|---|---|---|
+| `push` | commits reach a branch | branch, complete commit range where recoverable, authors, messages, files, additions, deletions |
+| `pull_request` | pull request lifecycle changes | action, title, body, actor, base/head, state, merge details |
+| `issues` | issue opens, closes, reopens, assignments | issue title, action, author, body, labels, target link |
+| `issue_comment` | issue or pull request comment is created | comment author, body, parent issue/PR, target link |
+| `pull_request_review` | review is submitted | reviewer, review state, body, pull request target |
+| `pull_request_review_comment` | inline review comment is created | reviewer, file path, line context, body, target |
+| `commit_comment` | commit comment is created | author, body, commit identifier, target |
+| `release` | release is published | tag, title, release notes, prerelease state, target |
+| `workflow_run` | Actions workflow completes | workflow, branch, conclusion, actor, target |
+| `deployment_status` | deployment status changes | environment, state, creator, target |
+| `discussion` | discussion lifecycle changes | title, category, action, author, body, target |
+| `discussion_comment` | discussion comment is created | author, body, discussion target |
+| `star` | repository star changes | actor, action, repository, target |
+| `fork` | repository is forked | actor, destination repository, fork count, target |
+| `create` | branch or tag is created | reference name and type, actor, target |
+| `delete` | branch or tag is deleted | reference name and type, actor, target |
+| `member` | collaborator is added or changed | affected user, action, actor, repository |
+| `public` | repository visibility changes | previous and new visibility, actor, target |
+| `ping` | an integration is initialized | repository and integration status |
+
+Polling is not an instantaneous delivery guarantee. The default interval is 30 seconds; GitHub API latency, rate limits, network conditions, and process availability affect delivery time.
+
+## Configuration
+
+Run the interactive wizard at any time:
+
+```bash
+ghgoyifi config
+```
+
+The wizard asks for operator-relevant values only:
+
+- Telegram bot token;
+- owner Telegram ID;
+- button type: `inline` or `in-msg`, default `inline`;
+- GitHub polling interval;
+- whether anonymous access to public repositories is allowed;
+- whether to configure an optional GitHub App.
+
+Boolean questions use clear Rich prompts such as `[Y/n]` and `[y/N]`. Press Enter to retain an existing non-secret value. Secrets are hidden and never printed back.
+
+For automation or one-field changes:
+
+```bash
+ghgoyifi config set settings.buttons inline
+ghgoyifi config set notifications.poll_interval 30
+ghgoyifi config rm settings.buttons
+```
+
+Technical defaults include the SQLite database, model modules, Telegram API defaults, polling mode, throttling defaults, and local gateway settings. They are written automatically and validated before saving.
+
+## Gateway and logs
+
+```bash
+ghgoyifi gateway install
+ghgoyifi gateway start
+ghgoyifi gateway restart
+ghgoyifi gateway enable
+ghgoyifi gateway stop
+ghgoyifi gateway disable
+ghgoyifi gateway status
+
+ghgoyifi logs show --lines 200
+ghgoyifi logs follow
+ghgoyifi logs clear
+ghgoyifi doctor
+ghgoyifi --version
+```
+
+The gateway detects the host init environment. Native service definitions are used where that init system has a stable service interface. On init environments without a portable service contract, GhGoyifier uses a direct supervised fallback for start, stop, restart, and status; enable/disable is reported as not applicable rather than being falsely claimed as native support.
+
+## Telegram workflow
+
+1. Send `/start` to the bot in private chat.
+2. Use `Connect` to provide a GitHub token or configure the optional GitHub App path.
+3. Use `Repos` to browse accessible accounts and repositories.
+4. Add the bot to a group as an administrator.
+5. Integrate a repository from the repository browser or use `/integrate owner/repository` as a group administrator.
+6. Use `/integrations` and `/events` in the group to manage the integration and event selection.
+7. Use `/set_topic` inside a forum topic when delivery should target that topic.
+
+Only the author of a management command who is currently an administrator can perform group-management operations. A user who is not an administrator receives no management menu and cannot perform the operation through a stale or copied button.
 
 ## Project layout
 
-```
-app/
-├── __main__.py                  # entry point (bot polling + webhook server)
-├── arguments.py                 # CLI args
-├── commands.py                  # Telegram bot command menu
-├── config.py                    # Pydantic-validated TOML config
-│
-├── db/
-│   ├── models.py                # Tortoise models + EventType / AuthSource enums
-│   │                            # (User, Chat, Integration, Installation, Eventsetting)
-│   └── functions.py             # Query helpers / domain methods
-│
-├── events/                      # One file per event: Pydantic schema + formatter
-│   ├── _base.py                 # Shared nested schemas (User, Repo, Issue, …)
-│   ├── _context.py              # EventCtx dataclass
-│   ├── _formatting.py           # HTML helpers (truncate, links, escape)
-│   ├── _registry.py             # Event registry + build_message()
-│   ├── push.py                  # — per-event modules —
-│   ├── pull_request.py
-│   ├── workflow_run.py
-│   └── …                        # 19 event files total
-│
-├── handlers/
-│   ├── admin/                   # /error, /mailing — owner-only
-│   └── user/
-│       ├── start.py             # /start, /help, install_<id> deep-link
-│       ├── dm_menu.py           # Reply-keyboard taps in DM
-│       ├── install.py           # /install — generates GitHub App install URL
-│       ├── token.py             # /token (legacy + dialog launcher)
-│       ├── integration.py       # /integrate, /integrations (buttoned),
-│       │                        # /delete, /set_topic + per-integration callbacks
-│       ├── reinstall.py         # /reinstall
-│       ├── event_settings.py    # /events keyboard + render_events_message helper
-│       └── text.py              # Catch-all DM text dispatcher (PAT input / repo lookup)
-│
-├── dialogs/                     # aiogram-dialog flows
-│   ├── token.py                 # TokenSG: main / awaiting_token / confirm_remove
-│   ├── repos/                   # ReposSG dialog package — orgs → repos → integrate
-│   │   ├── state.py             # ReposSG, ReposState (Pydantic-typed dialog_data)
-│   │   ├── _helpers.py          # user_integrations, org_label, repo_label
-│   │   ├── _orgs_window.py      # Orgs picker
-│   │   ├── _repos_window.py     # Repo list (paginated)
-│   │   ├── _detail_window.py    # Repo info
-│   │   ├── _choose_chat_window.py  # Chat picker for the integration
-│   │   └── _result_window.py    # Success/failure feedback
-│   └── my_chats/                # MyChatsSG dialog package — manage from DM
-│       ├── state.py
-│       ├── _chats_window.py
-│       ├── _chat_detail_window.py
-│       ├── _integration_detail_window.py
-│       └── _events_window.py    # Per-chat event toggles in DM
-│
-├── keyboards/
-│   ├── main_menu.py             # Persistent reply keyboard (DM)
-│   └── integration.py           # Inline keyboards for /integrations + management
-│
-├── middlewares/
-│   └── throttling.py            # Per-chat rate limiting
-│
-├── services/
-│   └── integration.py           # integrate_repo: PAT-path / App-path auto-routing
-│
-├── utils/
-│   ├── aiogram_helpers.py       # accessible_message, safe_edit_text/_markup
-│   ├── chat_access.py           # resolve_chat_title, list_admin_chats (cached)
-│   ├── dialog_helpers.py        # current_user_for_manager
-│   ├── dialog_state.py          # DialogState base class (Pydantic over dialog_data)
-│   ├── filters.py               # IS_DM, IS_GROUP_LIKE Magic-filter constants
-│   ├── github_access.py         # list_orgs_for_user / list_repos_for_org
-│   │                            # (PAT + App resolver, in-process TTL cache)
-│   ├── github_app.py            # JWT auth, installation token cache, state HMAC
-│   ├── group_admin.py           # get_admin_ids, is_user_admin
-│   └── hooks.py                 # GitHub API: create_webhook, update_webhook, …
-│                                # + HookError result type
-│
-└── webhook/                     # FastAPI side
-    ├── api.py                   # POST /webhook/{token}  — PAT-based delivery
-    ├── github_app.py            # GET  /github/setup     — App install callback
-    │                            # POST /webhook          — App-level webhook (HMAC)
-    └── main.py                  # uvicorn entry point
+```text
+GhGoyifier/
+├── __main__.py          runtime entry point and CLI dispatch
+├── cli.py               Rich operator CLI and configuration wizard
+├── gateway.py           init detection and service lifecycle
+├── notifications.py     GitHub polling, reconciliation, and delivery
+├── events/              event schemas, registry, and Rich formatters
+├── handlers/            commands, callbacks, ownership, and admin checks
+├── keyboards/           Telegram keyboard builders
+├── db/                  Tortoise models and domain operations
+├── services/             integration orchestration
+└── utils/                GitHub, Telegram, security, and text helpers
 
-scripts/
-└── test_github_app.py           # Standalone smoke test for GitHub App credentials
+assets/
+├── ghgoyifier-banner.svg
+└── icons/
+
+install.sh               interactive installer
 ```
 
-## TODO
+## Development
 
-- [ ] **Filters** — per-chat ignore rules: author (e.g. `dependabot`), branch, label, event subtype
-- [ ] **AI summary for large PRs / commits** — client provides API key, model name and provider
-      (Anthropic / OpenAI / OpenRouter / etc.); diff + commit titles are sent to the model and the
-      generated TL;DR is appended to the notification
-- [ ] `/test <repo>` command — send a synthetic webhook payload to verify delivery without pushing
-- [ ] `/status` command — per-integration health: `last_event_at`, `events_24h`, healthy/unhealthy
-- [ ] **Custom message templates** (Jinja-style) — each chat can override the message format per event
-- [ ] **Localization** (en / ru, extensible)
-- [ ] **Webhook secret + HMAC verification** (`X-Hub-Signature-256`) — reject forged events
-- [ ] **Encrypt GitHub tokens at rest** in the database (Fernet/AES, key from env)
-- [ ] **Org mode** — `/integrate myorg/*` to subscribe to all repositories of an organization at once
-- [ ] **Stats** — `/stats <period>`: top authors, top repos by activity, ASCII activity graph
-- [ ] **Auto-pin important releases** — by label (e.g. `major`) or by semver major bump
-- [ ] `/whoami` (DM) — show all repositories and chats the user is subscribed to
-- [ ] `/mute <duration>` — temporarily silence notifications in a chat (e.g. `/mute 2h`)
-- [ ] **Emoji reactions** on bot messages map to GitHub actions (👍 → approve PR,
-      👎 → request changes, 🔁 → re-run failed CI, etc.)
-- [ ] **Render GitHub Markdown** in PR / issue bodies as Telegram HTML (headings, lists, links,
-      code blocks) instead of raw escaped text
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+PYTHONPATH=. .venv/bin/python -m compileall -q GhGoyifier
+uvx ruff check GhGoyifier --select F,E9 --output-format concise
+git diff --check
+PYTHONPATH=. .venv/bin/python -m GhGoyifier --help
+```
+
+The project intentionally keeps the original upstream MIT attribution for inherited portions in `LICENSE`. New and modified GhGoyifier work is licensed under the GNU Affero General Public License v3.0 in `LICENSE-AGPLv3`.
+
+## License
+
+GhGoyifier changes are released under the [GNU Affero General Public License v3.0](LICENSE-AGPLv3).
+
+The original upstream portions from `vsecoder/github-notifi-bot` retain their original MIT attribution and license in [LICENSE](LICENSE).

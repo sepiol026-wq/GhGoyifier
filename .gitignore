@@ -259,3 +259,5 @@ migrations/
 test.py
 secrets/
 scripts/
+.migration-backup-*
+.security-backup-*
