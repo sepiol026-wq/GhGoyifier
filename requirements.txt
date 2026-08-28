@@ -10,6 +10,6 @@ PyGithub
 pyjwt[crypto]>=2.8
 fastapi
 uvicorn
-goygram>=0.7.19
+goygram>=0.7.27
 aiohttp-socks>=0.10.1
 rich>=13.7
