@@ -178,6 +178,8 @@ class GoyMessage:
     async def answer(self, text: str, reply_markup: Any = None, **kwargs: Any):
         if self.is_callback and self.message_id:
             return await self.edit_text(text, reply_markup=reply_markup, **kwargs)
+        if self.message_thread_id and "message_thread_id" not in kwargs:
+            kwargs["message_thread_id"] = self.message_thread_id
         return await self.bot.send_message(
             self.chat_id, text, reply_markup=reply_markup, **kwargs
         )
