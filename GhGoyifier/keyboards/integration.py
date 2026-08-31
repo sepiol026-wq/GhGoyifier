@@ -21,7 +21,7 @@ def build_integrations_keyboard(integrations: list, is_callback: bool = False) -
 def build_management_keyboard(integration_id: int) -> dict:
     return inline_keyboard(
         [
-            [("🗑 Delete from chat", "callback_data", f"integ:del:{integration_id}")],
+            [("🗑 Remove from chat", "callback_data", f"integ:rm:{integration_id}")],
             [("« Back", "callback_data", "integ:list")],
         ]
     )

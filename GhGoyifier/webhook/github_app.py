@@ -120,7 +120,7 @@ async def app_webhook(
         action = payload.get("action")
         installation_id = payload.get("installation", {}).get("id")
         if installation_id and action in {"deleted", "suspend"}:
-            removed = await Installation.delete_by_installation_id(
+            removed = await Installation.remove_by_installation_id(
                 installation_id
             )
             logging.info(

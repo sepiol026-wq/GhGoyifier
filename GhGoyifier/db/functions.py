@@ -196,7 +196,7 @@ class Integration(models.Integration):
         await cls.filter(id=integration_id).update(last_commit=commit)
 
     @classmethod
-    async def delete_by_id(cls, integration_id: int):
+    async def remove_by_id(cls, integration_id: int):
         await cls.filter(id=integration_id).delete()
 
     @classmethod
@@ -243,7 +243,7 @@ class Installation(models.Installation):
         return await cls.get_or_none(installation_id=installation_id)
 
     @classmethod
-    async def delete_by_installation_id(cls, installation_id: int) -> int:
+    async def remove_by_installation_id(cls, installation_id: int) -> int:
         """Returns the number of rows deleted (0 if not found)."""
         return await cls.filter(installation_id=installation_id).delete()
 

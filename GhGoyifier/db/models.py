@@ -29,7 +29,7 @@ class EventType(str, Enum):
 
 
 class AuthSource(str, Enum):
-    """How an Integration was created — used to dispatch /reinstall, /delete
+    """How an Integration was created — used to dispatch /reinstall, /remove
     and webhook routing to the right code path. ``pat`` for legacy/PAT-based
     integrations (webhook on ``/webhook/{integration_token}``); ``app`` for
     GitHub App-based integrations (webhook on the App-level ``/webhook``)."""

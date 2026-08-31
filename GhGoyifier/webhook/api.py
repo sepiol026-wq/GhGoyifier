@@ -116,7 +116,7 @@ async def _notify_owner_of_delivery_failure(
         "• I lost permissions to write there\n"
         "• The forum topic the integration uses was closed\n\n"
         "Run <code>/integrations</code> in that chat to manage, or "
-        "<code>/delete owner/repo</code> there to remove the integration "
+        "<code>/remove owner/repo</code> there to remove the integration "
         "if the chat is gone."
     )
     clean_text, markup = extract_github_buttons(text)

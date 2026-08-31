@@ -78,7 +78,7 @@ help = (
     "<details><summary>Group commands</summary>\n"
     "<p><code>/integrate owner/repo</code><br><code>/integrations</code><br>"
     "<code>/events</code><br><code>/set_topic</code><br><code>/reinstall</code><br>"
-    "<code>/delete owner/repo</code></p>\n"
+    "<code>/remove owner/repo</code></p>\n"
     "</details>\n"
 )
 pat_guide = (
@@ -540,7 +540,7 @@ async def on_message(msg: Any, app, config: Config, bot: GoyBot):
         await Chat.ensure_registered(message.chat_id)
         event_text, event_markup = await _event_keyboard(int(message.chat_id), config, message)
         return await message.answer(event_text, reply_markup=event_markup)
-    if _command(text, "delete"):
+    if _command(text, "remove"):
         if _is_dm(message) or not await is_user_admin(
             bot, message.chat_id, message.from_user.id
         ):
@@ -553,7 +553,7 @@ async def on_message(msg: Any, app, config: Config, bot: GoyBot):
             return await message.answer(
                 f"Repository <code>{repo}</code> is not integrated in this chat."
             )
-        await Integration.delete_by_id(item.id)
+        await Integration.remove_by_id(item.id)
         return await message.answer(f"✅ Repository <code>{repo}</code> removed.")
     if _command(text, "set_topic"):
         if _is_dm(message) or not await is_user_admin(
@@ -637,7 +637,7 @@ async def on_callback(cb: Any, app, config: Config, bot: GoyBot):
     if data.startswith(("integ:", "toggle_event:")) and not await is_user_admin(bot, chat_id, user_id):
         await cb.answer("Only chat administrators can use this menu.", alert=True)
         return
-    if data.startswith(("repos:", "mychat:", "mychats", "myinteg:", "mydelete:", "myevents:", "myevent:", "token:")) and chat_id != user_id:
+    if data.startswith(("repos:", "mychat:", "mychats", "myinteg:", "myremove:", "myevents:", "myevent:", "token:")) and chat_id != user_id:
         await cb.answer("This menu is available only in private chat.", alert=True)
         return
     if data.startswith("lang:set:"):
@@ -927,12 +927,12 @@ async def on_callback(cb: Any, app, config: Config, bot: GoyBot):
             if items
             else await msg.edit_text("No integrations in this chat anymore.", inline_keyboard([[_nav_button(msg, "menu:home")]]))
         )
-    if data.startswith("integ:del:"):
+    if data.startswith("integ:rm:"):
         await cb.answer()
         item = await Integration.get_by_id(int(data.rsplit(":", 1)[1]))
         if item is None or item.chat_id != chat_id or not await is_user_admin(bot, chat_id, user_id):
             return await cb.answer("Only chat administrators can remove this integration.", alert=True)
-        await Integration.delete_by_id(item.id)
+        await Integration.remove_by_id(item.id)
         return await msg.edit_text("✅ Integration removed.")
     if data.startswith("integ:open:"):
         await cb.answer()
@@ -1004,16 +1004,16 @@ async def on_callback(cb: Any, app, config: Config, bot: GoyBot):
                 [
                     [
                         (
-                            "🗑 Delete from chat",
+                            "🗑 Remove from chat",
                             "callback_data",
-                            f"mydelete:{integration_id}:{selected_chat}",
+                            f"myremove:{integration_id}:{selected_chat}",
                         )
                     ],
                     [("« Back to chat", "callback_data", f"mychat:{selected_chat}")],
                 ]
             ),
         )
-    if data.startswith("mydelete:"):
+    if data.startswith("myremove:"):
         _, integration_id, selected_chat = data.split(":", 2)
         if not await is_user_admin(bot, int(selected_chat), user_id):
             return await cb.answer("You're no longer a chat administrator.", alert=True)
@@ -1021,7 +1021,7 @@ async def on_callback(cb: Any, app, config: Config, bot: GoyBot):
         current_user = await User.get_or_none(telegram_id=user_id)
         if item is None or current_user is None or item.user_id != current_user.id or item.chat_id != int(selected_chat):
             return await cb.answer("Integration not found.", alert=True)
-        await Integration.delete_by_id(int(integration_id))
+        await Integration.remove_by_id(int(integration_id))
         await cb.answer("Integration removed.", alert=True)
         return await msg.answer(
             "Integration removed.",

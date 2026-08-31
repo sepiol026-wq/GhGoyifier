@@ -8,7 +8,7 @@ users_commands = {
     "help": "Show setup guide and command reference",
     "integrate": "Integrate a repository (in group)",
     "integrations": "List integrated repositories",
-    "delete": "Remove an integration",
+    "remove": "Remove an integration",
     "reinstall": "Refresh polling notifications for this chat",
     "install": "Install the GitHub App for your account (DM)",
     "token": "Set or replace your GitHub token (DM)",
