@@ -6,6 +6,7 @@ import hashlib
 import html
 import json
 import logging
+import re
 import time
 from collections import defaultdict
 from typing import Any
@@ -129,17 +130,30 @@ def _headers_for(token: str | None, cache_key: str) -> dict[str, str]:
     return headers
 
 
+_moved_repos: dict[str, str] = {}
+
+
 async def _get(session: aiohttp.ClientSession, path: str, token: str | None, cache_key: str) -> tuple[int, dict, Any]:
-    async with session.get(f"{_api}{path}", headers=_headers_for(token, cache_key), timeout=aiohttp.ClientTimeout(total=12)) as response:
-        if response.status == 304:
-            return 304, dict(response.headers), None
-        data = await response.json(content_type=None)
-        if response.headers.get("ETag") or response.headers.get("Last-Modified"):
-            _headers[cache_key] = {
-                "etag": response.headers.get("ETag", ""),
-                "last_modified": response.headers.get("Last-Modified", ""),
-            }
-        return response.status, dict(response.headers), data
+    url = f"{_api}{path}"
+    redirects = 0
+    while redirects < 3:
+        async with session.get(url, headers=_headers_for(token, cache_key), allow_redirects=False, timeout=aiohttp.ClientTimeout(total=12)) as response:
+            if response.status == 304:
+                return 304, dict(response.headers), None
+            if response.status in (301, 302, 308):
+                location = response.headers.get("Location", "")
+                if location:
+                    url = location
+                    redirects += 1
+                    continue
+            data = await response.json(content_type=None)
+            if response.headers.get("ETag") or response.headers.get("Last-Modified"):
+                _headers[cache_key] = {
+                    "etag": response.headers.get("ETag", ""),
+                    "last_modified": response.headers.get("Last-Modified", ""),
+                }
+            return response.status, dict(response.headers), data
+    return 0, {}, None
 
 
 def _repository_name(value: dict) -> str:
@@ -351,6 +365,33 @@ async def _poll_notifications(session: aiohttp.ClientSession, bot: GoyBot, integ
                 _seen.add(key)
 
 
+async def _resolve_repo_redirect(session: aiohttp.ClientSession, repo: str, token: str | None) -> str:
+    try:
+        url = f"{_api}/repos/{repo}"
+        async with session.get(url, headers=_headers_for(token, f"resolve:{repo}"), allow_redirects=False, timeout=aiohttp.ClientTimeout(total=8)) as response:
+            if response.status in (301, 302, 308):
+                location = response.headers.get("Location", "")
+                m = re.search(r"github\.com/repos/([a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+)", location, re.IGNORECASE)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return repo
+
+
+async def _auto_fix_moved_repo(session: aiohttp.ClientSession, old_repo: str, token: str | None) -> str:
+    new_repo = await _resolve_repo_redirect(session, old_repo, token)
+    if new_repo == old_repo:
+        return old_repo
+    key = f"{old_repo}:{token or ''}"
+    if _moved_repos.get(key) == new_repo:
+        return new_repo
+    updated = await Integration.filter(repository_name=old_repo).update(repository_name=new_repo)
+    _moved_repos[key] = new_repo
+    _log.warning("repo moved: %s -> %s (updated %s integrations)", old_repo, new_repo, updated)
+    return new_repo
+
+
 async def _poll_events(session: aiohttp.ClientSession, bot: GoyBot, integrations: list[Integration], config: Config) -> None:
     by_repo: dict[tuple[str, str], list[Integration]] = defaultdict(list)
     for item in integrations:
@@ -363,6 +404,8 @@ async def _poll_events(session: aiohttp.ClientSession, bot: GoyBot, integrations
         status, _, data = await _get(session, f"/repos/{repo}/events?per_page=100", token or None, key)
         _log.info("events fetch repo=%s status=%s items=%s", repo, status, len(data) if isinstance(data, list) else 0)
         if status != 200 or not isinstance(data, list):
+            if status in (301, 302, 308):
+                await _auto_fix_moved_repo(session, repo, token or None)
             continue
         watermark = _event_watermarks.get(key)
         ordered = sorted(data, key=lambda event: (str(event.get("created_at") or ""), str(event.get("id") or "")))
@@ -427,6 +470,8 @@ async def _poll_commits(session: aiohttp.ClientSession, bot: GoyBot, integration
         branch_status, _, branches = await _get(session, f"/repos/{repo}/branches?per_page=100", token or None, f"branches:{repo}:{hash(token)}")
         if branch_status != 200 or not isinstance(branches, list):
             _log.info("branches fetch repo=%s status=%s items=%s", repo, branch_status, len(branches) if isinstance(branches, list) else 0)
+            if branch_status in (301, 302, 308):
+                await _auto_fix_moved_repo(session, repo, token or None)
             continue
         for branch_data in branches:
             branch = str(branch_data.get("name") or "")

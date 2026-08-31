@@ -21,6 +21,7 @@ from GhGoyifier.db.models import AuthSource
 from GhGoyifier.goygram_bot import GoyBot
 from GhGoyifier.utils.github_access import list_repos_for_installation
 from GhGoyifier.utils.hooks import HookError, check_repo
+from GhGoyifier.utils.repo_normalizer import normalize_repo
 
 
 @dataclass
@@ -44,6 +45,11 @@ async def integrate_repo(
     ``skip_admin_check`` is set (only safe when the caller verified it
     immediately before).
     """
+    repo_name = normalize_repo(repo_name)
+    if "/" not in repo_name:
+        return IntegrationResult(
+            False, f"Invalid repository format: <code>{repo_name}</code>. Use <code>owner/repo</code>."
+        )
     if not skip_admin_check:
         try:
             admins = await bot.get_chat_administrators(chat_id)

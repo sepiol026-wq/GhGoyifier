@@ -48,6 +48,7 @@ from GhGoyifier.utils.github_access import (
 )
 from GhGoyifier.utils.github_app import install_url
 from GhGoyifier.utils.group_admin import get_admin_ids, is_user_admin
+from GhGoyifier.utils.repo_normalizer import normalize_repo
 from GhGoyifier.utils.hooks import (
     HookError,
     check_repo,
@@ -504,7 +505,7 @@ async def on_message(msg: Any, app, config: Config, bot: GoyBot):
             return await message.answer(
                 "Only chat administrators can use this command."
             )
-        repo = _args(text)
+        repo = normalize_repo(_args(text))
         if not repo or "/" not in repo:
             return await message.answer(
                 "Invalid command. Use <code>/integrate username/repository</code>"
@@ -547,7 +548,7 @@ async def on_message(msg: Any, app, config: Config, bot: GoyBot):
             return await message.answer(
                 "Only chat administrators can use this command."
             )
-        repo = _args(text)
+        repo = normalize_repo(_args(text))
         item = await Integration.get_by_chat_and_repo(message.chat_id, repo)
         if not item:
             return await message.answer(
