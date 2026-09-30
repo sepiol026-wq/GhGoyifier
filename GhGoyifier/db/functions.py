@@ -88,29 +88,11 @@ class Chat(models.Chat):
 
     @classmethod
     async def add_integration(cls, chat_id: int, user_id: int, repository_name: str) -> tuple:
-        chat = await cls.get(chat_id=chat_id)
-        user = await User.get(id=user_id)
-
-        existing = await Integration.filter(
-            repository_name=repository_name, user=user
-        ).first()
-
+        existing = await Integration.get_by_chat_and_repo(chat_id, repository_name)
         if existing:
-            integration = await Integration.create(
-                chat=chat,
-                user=user,
-                repository_name=repository_name,
-                integration_token=encrypt(existing.integration_token),
-                integration_token_hash=existing.integration_token_hash or digest(existing.integration_token),
-            )
-            return integration, True
-
-        integration_token = token_urlsafe(32)
-        integration = await Integration.create(
-            chat=chat,
-            user=user,
-            repository_name=repository_name,
-            integration_token=encrypt(integration_token),
+            return existing, True
+        integration = await Integration.create_integration(
+            repository_name, chat_id, user_id
         )
         return integration, False
 
