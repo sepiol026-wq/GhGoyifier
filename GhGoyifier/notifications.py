@@ -107,6 +107,7 @@ _api = "https://api.github.com"
 _seen: set[str] = set()
 _headers: dict[str, dict[str, str]] = {}
 _next_notifications: dict[int, float] = {}
+_delivery_retry_at: dict[int, float] = {}
 _event_watermarks: dict[str, str] = {}
 _commit_watermarks: dict[str, str] = {}
 _delivered_commit_heads: set[str] = set()
@@ -120,7 +121,7 @@ def _headers_for(token: str | None, cache_key: str) -> dict[str, str]:
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "Goyifier"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    if cache_key.startswith(("events:", "branches:", "commits:", "commit-range:")):
+    if cache_key.startswith(("events:", "branches:", "commits:", "commit-range:", "commit:")):
         return headers
     previous = _headers.get(cache_key, {})
     if previous.get("etag"):
@@ -181,18 +182,10 @@ async def _event_text(session: aiohttp.ClientSession, repo: str, event: dict, to
     action = html.escape(str(payload.get("action") or "updated"))
     title = html.escape(str((payload.get("release") or {}).get("name") or (payload.get("issue") or {}).get("title") or (payload.get("pull_request") or {}).get("title") or ""))
     if event_type == "push":
-        branch = str(payload.get("ref") or "refs/heads/main").split("/")[-1]
+        branch = str(payload.get("ref") or "refs/heads/main").removeprefix("refs/heads/")
         commits = list(payload.get("commits") or [])
         before = payload.get("before")
         head = payload.get("head") or payload.get("after")
-        expected_count = max(int(payload.get("size") or 0), int(payload.get("distinct_size") or 0))
-        if before and head and (not commits or len(commits) < expected_count):
-            status, _, compared = await _get(session, f"/repos/{repo}/compare/{before}...{head}", token, f"compare:{repo}:{before}:{head}")
-            if status == 200 and isinstance(compared, dict) and compared.get("commits"):
-                commits = compared["commits"]
-        if not commits:
-            count = expected_count or 1
-            return f'<b>📏 On {html.escape(repo)}:{html.escape(branch)} new commits!</b>\nCommits pushed: <b>{count}</b>\n\n<i>Commit details are temporarily unavailable.</i>', f"https://github.com/{repo}/commits/{branch}", "Open commits"
         blocks = []
         for commit in commits:
             sha = str(commit.get("sha") or commit.get("id") or "")
@@ -220,8 +213,11 @@ async def _event_text(session: aiohttp.ClientSession, repo: str, event: dict, to
                 block += f"\n<b>🗑 Removed files:</b>\n<code>{html.escape(chr(10).join(removed))}</code>\n"
             if modified:
                 block += f"\n<b>🖊 Modified files:</b>\n<code>{html.escape(chr(10).join(modified))}</code>\n"
-            if files:
-                block += f"\n<b>⌨️ Diff:</b>\n➕ {sum(int(x.get('additions') or 0) for x in files)}\n➖ {sum(int(x.get('deletions') or 0) for x in files)}\n"
+            stats = detail.get("stats") or {}
+            if stats or files:
+                added_lines = stats.get("additions", sum(int(x.get("additions") or 0) for x in files))
+                deleted_lines = stats.get("deletions", sum(int(x.get("deletions") or 0) for x in files))
+                block += f"\n<b>⌨️ Diff:</b>\n➕ {added_lines}\n➖ {deleted_lines}\n"
             blocks.append(block + "</blockquote>")
         compare_url = f"https://github.com/{repo}/compare/{before}...{head}" if before and head else f"https://github.com/{repo}/commits/{branch}"
         return f'<b>📏 On {html.escape(repo)}:{html.escape(branch)} new commits!</b>\n{len(commits)} commits pushed.\n\n' + "\n".join(blocks), compare_url, "Compare changes"
@@ -309,7 +305,7 @@ def _notification_text(item: dict, repo: str, lang: str = "en") -> tuple[str, st
 
 async def _send(bot: GoyBot, integration: Integration, rendered: tuple[str, str, str]) -> bool:
     chat = integration.chat
-    if chat is None:
+    if chat is None or time.monotonic() < _delivery_retry_at.get(integration.id, 0):
         return False
     kwargs = {"message_thread_id": chat.topic_id} if chat.topic_id else {}
     text, url, label = rendered
@@ -317,6 +313,52 @@ async def _send(bot: GoyBot, integration: Integration, rendered: tuple[str, str,
         await bot.send_message(chat.chat_id, text, reply_markup=inline_keyboard([[(f"🔗 {label}", "url", url)]]), **kwargs)
     except SilentDrop:
         return False
+    except Exception as exc:
+        reason = re.search(r"(?:Bad Request|Forbidden|Too Many Requests):[^'\"\n}]*", str(exc))
+        detail = reason.group(0)[:180] if reason else type(exc).__name__
+        delay = 300 if any(value in detail.lower() for value in ("chat not found", "thread not found", "bot was kicked", "bot was blocked")) else 30
+        _delivery_retry_at[integration.id] = time.monotonic() + delay
+        _log.warning("delivery failed integration=%s chat=%s topic=%s error=%s reason=%s retry_in=%s", integration.id, chat.chat_id, chat.topic_id, type(exc).__name__, detail, delay)
+        return False
+    _delivery_retry_at.pop(integration.id, None)
+    return True
+
+
+def _destination_key(integration: Integration) -> str:
+    return f"integration:{integration.id}:chat:{integration.chat.chat_id}:topic:{integration.chat.topic_id}"
+
+
+async def _send_push(session: aiohttp.ClientSession, bot: GoyBot, integration: Integration, repo: str, event: dict, token: str | None) -> bool:
+    payload = event.get("payload") or {}
+    ref = str(payload.get("ref") or "refs/heads/main")
+    head = str(payload.get("head") or payload.get("after") or "")
+    key = f"{_destination_key(integration)}:{repo}:{ref}"
+    head_key = f"{key}:head:{head}:before:{payload.get('before') or ''}"
+    if head and head_key in _delivered_commit_heads:
+        return True
+    commits = list(payload.get("commits") or [])
+    expected_count = max(int(payload.get("size") or 0), int(payload.get("distinct_size") or 0))
+    if not commits or len(commits) < expected_count:
+        before = payload.get("before")
+        if not before or not head:
+            return False
+        status, _, compared = await _get(session, f"/repos/{repo}/compare/{before}...{head}", token, f"commit-range:{repo}:{before}:{head}")
+        if status != 200 or not isinstance(compared, dict):
+            return False
+        commits = compared.get("commits") or []
+        if not commits or len(commits) < expected_count or len(commits) < int(compared.get("total_commits") or 0):
+            return False
+    if any(not (commit.get("sha") or commit.get("id")) for commit in commits):
+        return False
+    commits = [commit for commit in commits if f"{key}:commit:{commit.get('sha') or commit.get('id')}" not in _delivered_commit_heads]
+    if commits:
+        event = {**event, "payload": {**payload, "commits": commits, "size": len(commits), "distinct_size": len(commits)}}
+        rendered = await _event_text(session, repo, event, token, await Chat.get_language(integration.chat.chat_id))
+        if not await _send(bot, integration, rendered):
+            return False
+        _delivered_commit_heads.update(f"{key}:commit:{commit.get('sha') or commit.get('id')}" for commit in commits)
+    if head:
+        _delivered_commit_heads.add(head_key)
     return True
 
 
@@ -350,14 +392,14 @@ async def _poll_notifications(session: aiohttp.ClientSession, bot: GoyBot, integ
             notification_type = str((item.get("subject") or {}).get("type") or "").lower()
             event_type = {"issue": "issues", "pullrequest": "pull_request", "pull_request": "pull_request", "release": "release", "discussion": "discussion", "commit": "push"}.get(notification_type, "issues")
             for integration in matches:
-                delivery_key = f"{key}:chat:{integration.chat.chat_id}"
+                delivery_key = f"{key}:{_destination_key(integration)}"
                 if delivery_key in _seen or not await EventSetting.is_enabled(integration.chat.chat_id, event_type):
                     continue
                 if await _send(bot, integration, _notification_text(item, repo, await Chat.get_language(integration.chat.chat_id))):
                     _seen.add(delivery_key)
             all_delivered = True
             for integration in matches:
-                delivery_key = f"{key}:chat:{integration.chat.chat_id}"
+                delivery_key = f"{key}:{_destination_key(integration)}"
                 enabled = await EventSetting.is_enabled(integration.chat.chat_id, event_type)
                 if enabled and delivery_key not in _seen:
                     all_delivered = False
@@ -415,47 +457,43 @@ async def _poll_events(session: aiohttp.ClientSession, bot: GoyBot, integrations
                 _event_watermarks[key] = f"{newest.get('created_at') or ''}:{newest.get('id') or ''}"
             continue
         delivered = 0
+        delivery_pending = False
         newest_marker = watermark
         for event in ordered:
             marker = f"{event.get('created_at') or ''}:{event.get('id') or ''}"
             if marker <= watermark:
                 continue
-            event_key = _event_key(repo, event)
+            event_key = f"{_event_key(repo, event)}:{key}"
             if event_key in _seen:
                 continue
             event_type = _event_names.get(str(event.get("type")))
             if not event_type:
                 newest_marker = max(newest_marker, marker)
                 continue
-            event_payload = event.get("payload") or {}
-            if event_type == "push" and not event_payload.get("commits") and not event_payload.get("before"):
-                newest_marker = max(newest_marker, marker)
-                continue
-            event_head = str(event_payload.get("head") or "")
-            if event_type == "push" and event_head and event_head in _delivered_commit_heads:
-                newest_marker = max(newest_marker, marker)
-                continue
             enabled = [integration for integration in items if await EventSetting.is_enabled(integration.chat.chat_id, event_type)]
             delivery_failed = False
             for integration in enabled:
-                delivery_key = f"{event_key}:chat:{integration.chat.chat_id}"
+                delivery_key = f"{event_key}:{_destination_key(integration)}"
                 if delivery_key in _seen:
                     continue
-                if await _send(bot, integration, await _event_text(session, repo, event, token or None, await Chat.get_language(integration.chat.chat_id))):
+                if event_type == "push":
+                    sent = await _send_push(session, bot, integration, repo, event, token or None)
+                else:
+                    sent = await _send(bot, integration, await _event_text(session, repo, event, token or None, await Chat.get_language(integration.chat.chat_id)))
+                if sent:
                     _seen.add(delivery_key)
                 else:
                     delivery_failed = True
             if delivery_failed:
-                break
-            if not enabled or all(f"{event_key}:chat:{integration.chat.chat_id}" in _seen for integration in enabled):
+                delivery_pending = True
+                continue
+            if not enabled or all(f"{event_key}:{_destination_key(integration)}" in _seen for integration in enabled):
                 _seen.add(event_key)
             newest_marker = max(newest_marker, marker)
-            if event_type == "push" and event_head:
-                _delivered_commit_heads.add(event_head)
             delivered += 1
             if delivered >= _max_new_events_per_repo:
                 break
-        _event_watermarks[key] = newest_marker
+        _event_watermarks[key] = watermark if delivery_pending else newest_marker
         _log.info("events processed repo=%s new=%s", repo, delivered)
 
 
@@ -483,40 +521,36 @@ async def _poll_commits(session: aiohttp.ClientSession, bot: GoyBot, integration
                 _log.info("commits fetch repo=%s branch=%s status=%s items=%s", repo, branch, status, len(commits) if isinstance(commits, list) else 0)
                 continue
             latest = str(commits[0].get("sha") or "")
-            previous = _commit_watermarks.get(key)
-            if previous is None:
-                _commit_watermarks[key] = latest
-                _log.info("commits baseline repo=%s branch=%s sha=%s", repo, branch, latest[:7])
-                continue
-            if latest == previous:
-                continue
-            if latest in _delivered_commit_heads:
-                _commit_watermarks[key] = latest
-                continue
-            status, _, compared = await _get(session, f"/repos/{repo}/compare/{previous}...{latest}", token or None, f"commit-range:{repo}:{branch}:{previous}:{latest}")
-            new_commits = compared.get("commits") if status == 200 and isinstance(compared, dict) else None
-            if not new_commits:
-                new_commits = [item for item in commits if str(item.get("sha") or "") != previous]
-            if new_commits:
-                event = {"type": "PushEvent", "repo": {"name": repo}, "payload": {"ref": f"refs/heads/{branch}", "before": previous, "head": latest, "size": len(new_commits), "commits": new_commits}}
-                event_key = _event_key(repo, event)
-                delivery_failed = False
-                for integration in items:
-                    if await EventSetting.is_enabled(integration.chat.chat_id, "push"):
-                        delivery_key = f"{event_key}:chat:{integration.chat.chat_id}"
-                        if delivery_key in _seen:
-                            continue
-                        rendered = await _event_text(session, repo, event, token or None, await Chat.get_language(integration.chat.chat_id))
-                        if await _send(bot, integration, rendered):
-                            _seen.add(delivery_key)
-                        else:
-                            delivery_failed = True
-                if delivery_failed:
+            for integration in items:
+                cursor_key = f"{_destination_key(integration)}:{repo}:refs/heads/{branch}"
+                previous = _commit_watermarks.get(cursor_key)
+                if previous is None or not await EventSetting.is_enabled(integration.chat.chat_id, "push"):
+                    _commit_watermarks[cursor_key] = latest
                     continue
-                _seen.add(event_key)
-                _delivered_commit_heads.add(latest)
-                _log.info("commits processed repo=%s branch=%s new=%s", repo, branch, len(new_commits))
-            _commit_watermarks[key] = latest
+                if latest == previous:
+                    continue
+                if f"{cursor_key}:head:{latest}:before:{previous}" in _delivered_commit_heads:
+                    _commit_watermarks[cursor_key] = latest
+                    continue
+                status, _, compared = await _get(session, f"/repos/{repo}/compare/{previous}...{latest}", token or None, f"commit-range:{repo}:{branch}:{previous}:{latest}")
+                new_commits = compared.get("commits") if status == 200 and isinstance(compared, dict) else None
+                if new_commits and len(new_commits) < int(compared.get("total_commits") or 0):
+                    new_commits = None
+                if not new_commits:
+                    new_commits = []
+                    for commit in commits:
+                        if str(commit.get("sha") or "") == previous:
+                            new_commits.reverse()
+                            break
+                        new_commits.append(commit)
+                    else:
+                        continue
+                if not new_commits:
+                    continue
+                event = {"type": "PushEvent", "repo": {"name": repo}, "payload": {"ref": f"refs/heads/{branch}", "before": previous, "head": latest, "size": len(new_commits), "commits": new_commits}}
+                if await _send_push(session, bot, integration, repo, event, token or None):
+                    _commit_watermarks[cursor_key] = latest
+                    _log.info("commits processed repo=%s branch=%s new=%s", repo, branch, len(new_commits))
 
 
 async def poll_once(bot: GoyBot, config: Config) -> None:
