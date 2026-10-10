@@ -1,6 +1,7 @@
 # CopyLeft 2026 github.com/sepiol026-wq | telegram:@samsepi0l_ovf. Licensed under AGPLv3.
 # Portions derived from vsecoder/github-notifi-bot; original MIT license is retained in LICENSE.
 import ipaddress
+import time
 from dataclasses import dataclass
 from urllib.parse import quote, urlsplit
 
@@ -27,10 +28,40 @@ def _gh(token: str | None = None) -> Github:
     return Github(auth=Auth.Token(token)) if token else Github()
 
 
+def _rate_limit(e: GithubException, api_msg: str) -> HookError | None:
+    """A 403 is either a permission problem or the hourly quota. Telling them
+    apart matters: the quota error is not about the token's scopes at all."""
+    if getattr(e, "status", None) != 403:
+        return None
+    headers = getattr(e, "headers", None)
+    headers = headers if isinstance(headers, dict) else {}
+    if "rate limit" not in api_msg.lower() and headers.get("X-RateLimit-Remaining") != "0":
+        return None
+    try:
+        left = int(headers.get("X-RateLimit-Reset") or 0) - time.time()
+    except (TypeError, ValueError):
+        left = 0
+    when = f" Try again in about {max(1, -(-int(left) // 60))} min." if left > 0 else " Try again a bit later."
+    return HookError(
+        "rate_limit",
+        "GitHub's hourly API limit is used up. It's <b>5000 requests/hour per "
+        "account</b> and shared by everything using this token — this bot, the "
+        "<code>gh</code> CLI, other scripts. The token itself is fine."
+        f"{when}\n"
+        "• Permanent fix: connect a <b>GitHub App</b> (DM → 🔌 Connect) — an App "
+        "gets its own hourly quota instead of sharing yours.",
+        api_msg,
+    )
+
+
 def _explain(e: GithubException, repo_name: str = "") -> HookError:
     status = getattr(e, "status", None)
     data = e.data if isinstance(e.data, dict) else {}
     api_msg = data.get("message", "")
+
+    limited = _rate_limit(e, api_msg)
+    if limited is not None:
+        return limited
 
     if isinstance(e, BadCredentialsException) or status == 401:
         return HookError(
@@ -57,8 +88,7 @@ def _explain(e: GithubException, repo_name: str = "") -> HookError:
             "• Your token is missing the <code>admin:repo_hook</code> scope "
             "(required to manage webhooks).\n"
             "• You are <b>not the owner</b> of the repository and don't have "
-            "admin/maintain access — only owners or admins can install webhooks.\n"
-            "• You hit the GitHub API rate limit. Try again later.",
+            "admin/maintain access — only owners or admins can install webhooks.\n",
             api_msg,
         )
 
@@ -112,6 +142,9 @@ def _explain_webhook_access(e: GithubException, repo_name: str) -> HookError:
     status = getattr(e, "status", None)
     data = e.data if isinstance(e.data, dict) else {}
     api_msg = data.get("message", "")
+    limited = _rate_limit(e, api_msg)
+    if limited is not None:
+        return limited
     if status in (401, 403, 404):
         return HookError(
             "no_permission",
