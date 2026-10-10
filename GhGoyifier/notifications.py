@@ -15,7 +15,7 @@ import aiohttp
 
 from GhGoyifier.anti_abuse import SilentDrop
 from GhGoyifier.config import Config
-from GhGoyifier.db.functions import Chat, EventSetting, Integration
+from GhGoyifier.db.functions import Chat, EventSetting, Installation, Integration
 from GhGoyifier.db.models import AuthSource
 from GhGoyifier.goygram_bot import GoyBot, inline_keyboard
 from GhGoyifier.utils.github_app import get_installation_token
@@ -418,14 +418,14 @@ async def _auth_token(item: Integration, config: Config) -> str | None:
         and config.github_app.is_configured
     ):
         try:
-            return await asyncio.to_thread(
-                get_installation_token, config, item.installation_id
-            )
+            row = await Installation.get_or_none(id=item.installation_id)
+            if row is None:
+                return item.user.token if item.user else None
+            return await asyncio.to_thread(get_installation_token, config, row.installation_id)
         except Exception:
             _log.warning(
-                "app token failed installation=%s, falling back to user token",
-                item.installation_id,
-                exc_info=True,
+                "app token failed for %s, falling back to user token",
+                item.repository_name, exc_info=True,
             )
     return item.user.token if item.user else None
 
