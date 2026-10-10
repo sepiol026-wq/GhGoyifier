@@ -16,7 +16,9 @@ import aiohttp
 from GhGoyifier.anti_abuse import SilentDrop
 from GhGoyifier.config import Config
 from GhGoyifier.db.functions import Chat, EventSetting, Integration
+from GhGoyifier.db.models import AuthSource
 from GhGoyifier.goygram_bot import GoyBot, inline_keyboard
+from GhGoyifier.utils.github_app import get_installation_token
 from GhGoyifier.i18n import event_label
 
 _event_names = {
@@ -407,6 +409,27 @@ async def _poll_notifications(session: aiohttp.ClientSession, bot: GoyBot, integ
                 _seen.add(key)
 
 
+async def _auth_token(item: Integration, config: Config) -> str | None:
+    """App installations have their own hourly quota, the account's is shared,
+    so an App integration prefers the installation token, PAT is the fallback."""
+    if (
+        item.auth_source == AuthSource.app.value
+        and item.installation_id
+        and config.github_app.is_configured
+    ):
+        try:
+            return await asyncio.to_thread(
+                get_installation_token, config, item.installation_id
+            )
+        except Exception:
+            _log.warning(
+                "app token failed installation=%s, falling back to user token",
+                item.installation_id,
+                exc_info=True,
+            )
+    return item.user.token if item.user else None
+
+
 async def _resolve_repo_redirect(session: aiohttp.ClientSession, repo: str, token: str | None) -> str:
     try:
         url = f"{_api}/repos/{repo}"
@@ -437,7 +460,7 @@ async def _auto_fix_moved_repo(session: aiohttp.ClientSession, old_repo: str, to
 async def _poll_events(session: aiohttp.ClientSession, bot: GoyBot, integrations: list[Integration], config: Config) -> None:
     by_repo: dict[tuple[str, str], list[Integration]] = defaultdict(list)
     for item in integrations:
-        token = item.user.token if item.user else None
+        token = await _auth_token(item, config)
         if token is None and not config.notifications.none_auth_perm:
             continue
         by_repo[(item.repository_name, token or "")].append(item)
@@ -500,7 +523,7 @@ async def _poll_events(session: aiohttp.ClientSession, bot: GoyBot, integrations
 async def _poll_commits(session: aiohttp.ClientSession, bot: GoyBot, integrations: list[Integration], config: Config) -> None:
     by_repo: dict[tuple[str, str], list[Integration]] = defaultdict(list)
     for item in integrations:
-        token = item.user.token if item.user else None
+        token = await _auth_token(item, config)
         if token is None and not config.notifications.none_auth_perm:
             continue
         by_repo[(item.repository_name, token or "")].append(item)
